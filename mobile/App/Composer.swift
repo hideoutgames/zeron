@@ -1,11 +1,10 @@
 import SwiftUI
-#if canImport(PhotosUI)
-import PhotosUI
-#endif
 import ZeronClient
 import ZeronGenerated
+import ZeronPickers
 
-/// Text in, commands out. While the agent works, text steers and the stop glyph interrupts.
+/// Text in, commands out. A capsule at rest; a card once focused, long or carrying attachments.
+/// While the agent works, text steers and the stop control interrupts.
 struct Composer: View {
     let transcript: Transcript
     let chat: Chat
@@ -13,142 +12,179 @@ struct Composer: View {
 
     @Environment(AppModel.self) var app
     @State var text = ""
-    @State var images: [Data] = []
+    @State var attachments: [Attachment] = []
     @State var uploading = false
+    @State var failed = false
+    @State var picker = AttachmentPicker()
+    @FocusState var focused: Bool
 
     private var working: Bool { status == .working }
-    private var canSend: Bool { !uploading && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty) }
+    private var empty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty }
+    private var canSend: Bool { !uploading && !empty }
+    private var expanded: Bool { focused || !attachments.isEmpty || text.contains("\n") || text.count > 26 }
 
     var body: some View {
-        VStack(spacing: 8) {
-            if !images.isEmpty {
-                AttachmentStrip(images: $images)
+        VStack(alignment: .leading, spacing: 8) {
+            if !attachments.isEmpty {
+                AttachmentStrip(attachments: $attachments)
             }
-            HStack(alignment: .bottom, spacing: 10) {
-                ImagePicker(images: $images)
+            HStack(alignment: .bottom, spacing: 8) {
+                if !expanded { attach }
                 TextField(working ? "Steer" : "Message", text: $text, axis: .vertical)
-                    .lineLimit(6)
+                    .lineLimit(expanded ? 8 : 1)
                     .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
+                    .focused($focused)
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 6)
+                    .frame(minHeight: 32)
                     .onSubmit(submit)
-                if working {
-                    Button(action: transcript.interrupt) {
-                        Image(systemName: "stop.circle.fill").font(.title)
+                if !expanded { action }
+            }
+            if expanded {
+                HStack(spacing: 8) {
+                    attach
+                    if failed {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Theme.danger)
+                            .accessibilityLabel("Upload failed")
                     }
-                    .accessibilityLabel("Stop")
+                    Spacer()
+                    action
                 }
-                Button(action: submit) {
-                    Image(systemName: working ? "arrow.turn.up.right.circle.fill" : "arrow.up.circle.fill").font(.title)
-                }
-                .disabled(!canSend)
-                .accessibilityLabel(working ? "Steer" : "Send")
             }
         }
-        .padding(.horizontal)
+        .padding(8)
+        .panel(Theme.surface, radius: expanded ? 20 : 24)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(Theme.bg)
+        .attachmentPicker(picker)
+        .onAppear {
+            picker.onPick = { name, data in attachments.append(Attachment(name: name, data: data)) }
+        }
         .disabled(app.connection.status != .connected)
+    }
+
+    private var attach: some View {
+        Menu {
+            Button { picker.open("photos") } label: { Label { Text("Photos") } icon: { Image(glyph: "photo.on.rectangle") } }
+            Button { picker.open("camera") } label: { Label { Text("Camera") } icon: { Image(glyph: "camera") } }
+            Button { picker.open("files") } label: { Label { Text("Files") } icon: { Image(glyph: "folder") } }
+        } label: {
+            Image(systemName: "plus")
+                .foregroundStyle(Theme.muted)
+                .circleControl(Theme.raised)
+        }
+        .accessibilityLabel("Attach")
+    }
+
+    @ViewBuilder private var action: some View {
+        if working && empty {
+            Button(action: transcript.interrupt) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Theme.bg)
+                    .frame(width: 10, height: 10)
+                    .circleControl(Theme.text)
+            }
+            .accessibilityLabel("Stop")
+        } else {
+            Button(action: submit) {
+                Image(systemName: uploading ? "ellipsis" : "paperplane.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(canSend ? Theme.bg : Theme.faint)
+                    .circleControl(canSend ? Theme.text : Theme.raised)
+            }
+            .disabled(!canSend)
+            .accessibilityLabel(working ? "Steer" : "Send")
+        }
     }
 
     private func submit() {
         guard canSend else { return }
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pending = images
+        let files = attachments
         text = ""
-        images = []
+        attachments = []
+        failed = false
         if working {
             transcript.steer(prompt)
             return
         }
-        guard !pending.isEmpty else {
+        guard !files.isEmpty else {
             transcript.send(prompt, in: chat)
             return
         }
         uploading = true
         Task {
             defer { uploading = false }
-            var paths: [String] = []
-            for (index, data) in pending.enumerated() {
-                let name = "image-\(index + 1).jpg"
-                if let path = try? await Attachments.upload(data, named: name, to: chat.deviceId, via: app.connection) {
-                    paths.append(path)
+            do {
+                var paths: [String] = []
+                for file in files {
+                    paths.append(try await Attachments.upload(file.data, named: file.name, to: chat.deviceId, via: app.connection))
                 }
+                transcript.send(prompt, attachments: paths, in: chat)
+            } catch {
+                text = prompt
+                attachments = files
+                failed = true
             }
-            transcript.send(prompt, attachments: paths, in: chat)
         }
     }
 }
 
+/// Something the user picked to send along: a photo, a capture or a file.
+struct Attachment: Identifiable {
+    let id = UUID()
+    let name: String
+    let data: Data
+
+    var image: Image? { Image(data: data) }
+}
+
 struct AttachmentStrip: View {
-    @Binding var images: [Data]
+    @Binding var attachments: [Attachment]
 
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
-                ForEach(images.indices, id: \.self) { index in
-                    Thumbnail(data: images[index])
+                ForEach(attachments) { attachment in
+                    Thumbnail(attachment: attachment)
                         .overlay(alignment: .topTrailing) {
-                            Button { images.remove(at: index) } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.white)
-                                    .shadow(radius: 2)
+                            Button { attachments.removeAll { $0.id == attachment.id } } label: {
+                                Image(systemName: "xmark")
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.text)
+                                    .circleControl(Theme.bg.opacity(0.8), size: 20)
                             }
-                            .accessibilityLabel("Remove image")
-                            .offset(x: 6, y: -6)
+                            .accessibilityLabel("Remove")
+                            .offset(x: 4, y: -4)
                         }
                 }
             }
-            .padding(.top, 6)
+            .padding(6)
         }
-        .scrollIndicators(.hidden)
     }
 }
 
 struct Thumbnail: View {
-    let data: Data
+    let attachment: Attachment
 
     var body: some View {
         Group {
-            if let image = Image(data: data) {
+            if let image = attachment.image {
                 image.resizable().scaledToFill()
             } else {
-                Image(systemName: "photo")
+                VStack(spacing: 4) {
+                    Image(glyph: "doc.fill")
+                    Text(URL(fileURLWithPath: attachment.name).pathExtension.lowercased())
+                        .font(.caption2.monospaced())
+                }
+                .foregroundStyle(Theme.muted)
             }
         }
         .frame(width: 56, height: 56)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(Theme.raised)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.panelRadius))
+        .accessibilityLabel(Text(attachment.name))
     }
-}
-
-/// Photo library access. Only offered where the platform layer supports it.
-struct ImagePicker: View {
-    @Binding var images: [Data]
-
-    #if canImport(PhotosUI)
-    @State var selection: [PhotosPickerItem] = []
-
-    var body: some View {
-        PhotosPicker(selection: $selection, maxSelectionCount: 4, matching: .images) {
-            Image(systemName: "paperclip").font(.title2)
-        }
-        .accessibilityLabel("Attach image")
-        .onChange(of: selection) { _, items in
-            guard !items.isEmpty else { return }
-            selection = []
-            Task {
-                for item in items {
-                    if let data = try? await item.loadTransferable(type: Data.self) {
-                        images.append(data)
-                    }
-                }
-            }
-        }
-    }
-    #else
-    var body: some View {
-        EmptyView()
-    }
-    #endif
 }

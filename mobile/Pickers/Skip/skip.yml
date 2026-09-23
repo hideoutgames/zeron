@@ -1,0 +1,4 @@
+# Transpiled (Skip Lite) module bridged into the native ZeronMobile module.
+skip:
+  mode: 'transpiled'
+  bridging: true

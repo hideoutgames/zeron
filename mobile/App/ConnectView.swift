@@ -26,14 +26,16 @@ struct ConnectView: View {
                     Button {
                         app.connect(.demo)
                     } label: {
-                        Label("Demo", systemImage: "play.circle")
+                        Label { Text("Demo") } icon: { Image(glyph: "play.circle") }
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
             .navigationTitle("Zeron")
             .toolbar {
                 Button(action: connect) {
-                    Image(systemName: "arrow.right.circle.fill")
+                    Image(systemName: "arrow.forward")
                 }
                 .disabled(endpoint == nil)
                 .accessibilityLabel("Connect")

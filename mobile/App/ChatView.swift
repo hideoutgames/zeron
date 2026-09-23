@@ -24,6 +24,7 @@ struct ChatView: View {
                 ProgressView()
             }
         }
+        .background(Theme.bg)
         .navigationTitle(chat?.displayTitle ?? "")
         .inlineTitle()
         .toolbar {
@@ -32,7 +33,7 @@ struct ChatView: View {
             }
             if chat?.cwd != nil {
                 Button { showDiff = true } label: {
-                    Image(systemName: "plus.forwardslash.minus")
+                    Image(glyph: "plus.forwardslash.minus")
                 }
                 .accessibilityLabel("Changes")
             }
@@ -62,11 +63,11 @@ struct SessionBadge: View {
     var body: some View {
         switch status {
         case .working:
-            ProgressView().accessibilityLabel("Working")
+            ProgressView().tint(Theme.working).accessibilityLabel("Working")
         case .awaitingInput:
-            Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Needs input")
+            Image(glyph: "questionmark.circle.fill").foregroundStyle(Theme.warning).accessibilityLabel("Needs input")
         case .errored:
-            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red).accessibilityLabel("Failed")
+            Image(glyph: "exclamationmark.circle.fill").foregroundStyle(Theme.danger).accessibilityLabel("Failed")
         case .idle:
             EmptyView()
         }
@@ -79,18 +80,21 @@ struct PendingBar: View {
 
     var body: some View {
         ForEach(transcript.pending.filter { $0.failed != nil }) { item in
-            HStack {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text(item.failed ?? "").font(.footnote).lineLimit(1)
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
+                Text(item.failed ?? "").font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
                 Spacer()
-                Button { transcript.retry(item.id) } label: { Image(systemName: "arrow.clockwise") }
+                Button { transcript.retry(item.id) } label: { Image(glyph: "arrow.clockwise") }
                     .accessibilityLabel("Retry")
                 Button { transcript.discard(item.id) } label: { Image(systemName: "xmark") }
                     .accessibilityLabel("Discard")
             }
-            .padding(.horizontal)
-            .padding(.vertical, 6)
-            .background(.bar)
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .panel()
+            .padding(.horizontal, 12)
+            .background(Theme.bg)
         }
     }
 }

@@ -2,21 +2,28 @@ import SwiftUI
 import ZeronClient
 import ZeronGenerated
 
+/// Sessions grouped by space. With a `selection` it acts as a sidebar; without, rows push a chat.
 struct ChatListView: View {
+    var selection: Binding<String?>? = nil
+
     @Environment(AppModel.self) var app
 
     var body: some View {
         List {
             ForEach(sections, id: \.space?.id) { section in
-                Section(section.space?.title ?? "") {
+                Section {
                     ForEach(section.chats, id: \.id) { chat in
-                        NavigationLink(value: chat.id) {
-                            ChatRow(chat: chat, indicator: app.workspace.indicator(for: chat))
-                        }
+                        row(chat)
+                            .listRowBackground(selection?.wrappedValue == chat.id ? Theme.raised : Theme.bg)
                     }
+                } header: {
+                    Text(section.space?.title ?? "").foregroundStyle(Theme.faint)
                 }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
         .overlay {
             if !app.workspace.loaded {
                 ConnectionBadge(status: app.connection.status)
@@ -30,11 +37,21 @@ struct ChatListView: View {
         .toolbar {
             Menu {
                 Button(role: .destructive, action: app.signOut) {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label { Text("Sign Out") } icon: { Image(glyph: "rectangle.portrait.and.arrow.right") }
                 }
             } label: {
                 ConnectionBadge(status: app.connection.status)
             }
+        }
+    }
+
+    @ViewBuilder private func row(_ chat: Chat) -> some View {
+        let row = ChatRow(chat: chat, indicator: app.workspace.indicator(for: chat))
+        if let selection {
+            Button { selection.wrappedValue = chat.id } label: { row }
+                .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: chat.id) { row }
         }
     }
 
@@ -52,31 +69,34 @@ struct ChatListView: View {
     }
 }
 
+/// Desktop's session row: branch up top with the status corner, then the title, then a preview.
 struct ChatRow: View {
     let chat: Chat
     let indicator: ChatIndicator
 
     var body: some View {
-        HStack(spacing: 12) {
-            IndicatorDot(indicator: indicator)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(chat.displayTitle)
-                    .lineLimit(1)
-                if let preview = chat.lastMessagePreview, !preview.isEmpty {
-                    Text(preview)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-            if let branch = chat.branch {
-                Text(branch)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(chat.branch ?? "")
                     .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.faint)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                IndicatorDot(indicator: indicator)
+            }
+            Text(chat.displayTitle)
+                .font(.body.weight(.medium))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+            if let preview = chat.lastMessagePreview, !preview.isEmpty {
+                Text(preview)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.muted)
                     .lineLimit(1)
             }
         }
+        .padding(.vertical, 4)
+        .combinedAccessibility()
     }
 }
 
@@ -92,10 +112,10 @@ struct IndicatorDot: View {
 
     private var color: Color {
         switch indicator {
-        case .working: .blue
-        case .awaitingInput: .orange
-        case .errored: .red
-        case .completed: .green
+        case .working: Theme.working
+        case .awaitingInput: Theme.warning
+        case .errored: Theme.danger
+        case .completed: Theme.completed
         case .idle: .clear
         }
     }

@@ -33,22 +33,24 @@ struct DiffView: View {
                         Section {
                             PatchText(patch: diff.patch)
                             if diff.truncated {
-                                Label("Truncated", systemImage: "ellipsis")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                Image(systemName: "ellipsis")
+                                    .foregroundStyle(Theme.faint)
+                                    .accessibilityLabel("Truncated")
                             }
                         }
                     }
                     .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                 } else if failed {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.largeTitle)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.faint)
                         .accessibilityLabel("Could not load changes")
                 } else {
                     ProgressView()
                 }
             }
+            .background(Theme.bg)
             .navigationTitle(chat.branch ?? "Changes")
             .inlineTitle()
             .toolbar {
@@ -86,10 +88,10 @@ struct PatchText: View {
     }
 
     private func color(for line: Substring) -> Color {
-        if line.hasPrefix("+++") || line.hasPrefix("---") { return .secondary }
-        if line.hasPrefix("+") { return .green }
-        if line.hasPrefix("-") { return .red }
-        if line.hasPrefix("@@") { return .blue }
-        return .primary
+        if line.hasPrefix("+++") || line.hasPrefix("---") { return Theme.faint }
+        if line.hasPrefix("+") { return Theme.completed }
+        if line.hasPrefix("-") { return Theme.danger }
+        if line.hasPrefix("@@") { return Theme.accent }
+        return Theme.text
     }
 }

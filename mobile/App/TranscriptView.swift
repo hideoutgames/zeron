@@ -18,7 +18,7 @@ struct TranscriptView: View {
                     ForEach(transcript.pending.filter { $0.failed == nil }) { item in
                         if let text = item.prompt {
                             UserBubble(text: text)
-                                .opacity(0.5)
+                                .opacity(0.65)
                                 .id(item.id)
                         }
                     }
@@ -27,6 +27,7 @@ struct TranscriptView: View {
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
+            .background(Theme.bg)
             .overlay {
                 if !transcript.loaded {
                     ProgressView()

@@ -18,16 +18,28 @@ let package = Package(
         .package(url: "https://github.com/skiptools/skip-fuse.git", from: "1.0.0"),
         .package(url: "https://github.com/skiptools/skip-model.git", from: "1.0.0"),
         .package(url: "https://github.com/skiptools/skip-keychain.git", "0.0.0"..<"2.0.0"),
+        .package(url: "https://github.com/skiptools/skip-ui.git", from: "1.59.0"),
+        .package(url: "https://github.com/skiptools/skip-kit.git", from: "1.1.0"),
     ],
     targets: [
         .target(
             name: "ZeronMobile",
             dependencies: [
                 "ZeronClient",
+                "ZeronPickers",
                 .product(name: "SkipFuseUI", package: "skip-fuse-ui"),
             ],
             path: "App",
             resources: [.process("Resources")],
+            plugins: skipstone
+        ),
+        .target(
+            name: "ZeronPickers",
+            dependencies: [
+                .product(name: "SkipUI", package: "skip-ui"),
+                .product(name: "SkipKit", package: "skip-kit"),
+            ],
+            path: "Pickers",
             plugins: skipstone
         ),
         .target(

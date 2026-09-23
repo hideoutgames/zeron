@@ -14,6 +14,8 @@ let logger: Logger = Logger(subsystem: "dev.zeron.mobile", category: "ZeronMobil
     public var body: some View {
         ContentView()
             .environment(app)
+            .tint(Theme.accent)
+            .preferredColorScheme(.dark)
     }
 }
 

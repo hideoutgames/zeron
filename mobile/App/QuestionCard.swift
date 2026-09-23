@@ -21,32 +21,46 @@ struct QuestionCard: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(input.questions, id: \.id) { question in
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(question.question).font(.subheadline)
+                    Text(question.question).font(.subheadline).foregroundStyle(Theme.text)
                     if question.options.isEmpty {
                         TextField("Answer", text: binding(question.id))
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .panel(Theme.raised)
                     } else {
                         ForEach(question.options, id: \.self) { option in
+                            let chosen = picked[question.id, default: []].contains(option)
                             Button { toggle(option, in: question) } label: {
-                                Label(option, systemImage: picked[question.id, default: []].contains(option) ? "checkmark.circle.fill" : "circle")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                HStack(spacing: 10) {
+                                    Image(systemName: chosen ? "checkmark.circle.fill" : "checkmark.circle")
+                                        .foregroundStyle(chosen ? Theme.accent : Theme.faint)
+                                    Text(option).foregroundStyle(Theme.text)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 44)
+                                .panel(chosen ? Theme.accent.opacity(0.12) : Theme.raised)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
             if !answered {
                 Button(action: submit) {
-                    Image(systemName: "arrow.up.circle.fill").font(.title2)
+                    Image(systemName: "paperplane.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(complete ? Theme.bg : Theme.faint)
+                        .circleControl(complete ? Theme.text : Theme.raised)
                 }
                 .disabled(!complete)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityLabel("Answer")
             }
         }
-        .padding()
-        .background(.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
+        .padding(12)
+        .panel()
         .disabled(answered)
         .opacity(answered ? 0.6 : 1)
     }
