@@ -40,12 +40,27 @@ public final class Transcript {
 
     // MARK: - Commands
 
-    public func send(_ prompt: String, base: RunRequest, attachments: [String] = []) {
-        var request = base
-        request.prompt = prompt
-        request.attachments = attachments
+    public func send(_ text: String, attachments: [String] = [], in chat: Chat) {
+        let request = RunRequest(
+            prompt: Transcript.prompt(text, attachments: attachments),
+            harness: chat.config?.harness,
+            model: chat.config?.model,
+            reasoning: chat.config?.reasoning,
+            modelOptions: chat.config?.modelOptions ?? [:],
+            cwd: chat.cwd ?? "",
+            sandbox: chat.config?.sandbox ?? .workspaceWrite,
+            attachments: attachments
+        )
         let id = UUID().uuidString.lowercased()
         queue(id, .run(.init(request: request, messageId: id)))
+    }
+
+    /// Mirrors upstream `with_attachments`: staged paths ride the prompt as a list.
+    static func prompt(_ text: String, attachments: [String]) -> String {
+        guard !attachments.isEmpty else { return text }
+        let body = text.isEmpty ? "See the attached image(s)." : text
+        let refs = attachments.map { "- \($0)" }.joined(separator: "\n")
+        return "\(body)\n\nAttached images (local files - open them to view):\n\(refs)"
     }
 
     public func steer(_ prompt: String) {

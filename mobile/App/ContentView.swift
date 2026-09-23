@@ -2,9 +2,41 @@ import SwiftUI
 import ZeronClient
 
 struct ContentView: View {
-    @State var connection = Connection()
+    @Environment(AppModel.self) var app
 
     var body: some View {
-        Text(String(describing: connection.status))
+        if app.endpoint == nil {
+            ConnectView()
+        } else {
+            NavigationStack {
+                ChatListView()
+            }
+        }
+    }
+}
+
+/// A single glyph summarising the host link. Sits in toolbars.
+struct ConnectionBadge: View {
+    let status: Connection.Status
+
+    var body: some View {
+        Group {
+            switch status {
+            case .connected: Image(systemName: "bolt.horizontal.fill").foregroundStyle(.green)
+            case .connecting: ProgressView().controlSize(.small)
+            case .disconnected: Image(systemName: "bolt.horizontal").foregroundStyle(.secondary)
+            case .unauthorized: Image(systemName: "lock.slash").foregroundStyle(.red)
+            }
+        }
+        .accessibilityLabel(label)
+    }
+
+    private var label: String {
+        switch status {
+        case .connected: "Connected"
+        case .connecting: "Connecting"
+        case .disconnected: "Disconnected"
+        case .unauthorized: "Unauthorized"
+        }
     }
 }
