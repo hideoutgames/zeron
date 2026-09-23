@@ -1,0 +1,21 @@
+{
+  "id": "chat-1",
+  "deviceId": "dev-1",
+  "title": "Fix login",
+  "archived": false,
+  "cwd": "/repo",
+  "branch": "main",
+  "checkoutId": "co-1",
+  "config": {
+    "harness": "claude-code",
+    "model": "opus",
+    "reasoning": "high",
+    "modelOptions": {},
+    "sandbox": "workspace-write"
+  },
+  "lastMessagePreview": "Done",
+  "lastMessageAt": "2026-01-02T03:04:05Z",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "spaceId": "space-1",
+  "roomGen": 2
+}

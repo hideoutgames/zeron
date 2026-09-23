@@ -1,0 +1,5 @@
+{
+  "reset": [
+    { "id": "msg-0", "role": "user", "parts": [{ "kind": "text", "id": "u1", "text": "Hi" }], "createdAt": 1, "deviceId": "dev-1" }
+  ]
+}

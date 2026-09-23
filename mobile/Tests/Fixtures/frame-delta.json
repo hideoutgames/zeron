@@ -1,0 +1,8 @@
+{
+  "upsert": [
+    { "after": "msg-0", "entry": { "id": "msg-1", "role": "assistant", "parts": [{ "kind": "text", "id": "p1", "text": "He" }], "createdAt": 2, "deviceId": "dev-1", "status": "streaming" } }
+  ],
+  "append": [{ "entry": "msg-1", "part": "p1", "text": "llo", "len": 5 }],
+  "remove": [],
+  "count": 2
+}

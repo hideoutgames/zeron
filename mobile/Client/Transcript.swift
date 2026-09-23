@@ -157,7 +157,7 @@ public final class Transcript {
         }
     }
 
-    static func apply(_ delta: TranscriptFrame.Delta, to entries: inout [SessionMessageEntry]) -> Bool {
+    nonisolated static func apply(_ delta: TranscriptFrame.Delta, to entries: inout [SessionMessageEntry]) -> Bool {
         let gone = Set(delta.remove)
         entries.removeAll { gone.contains($0.id) }
         for upsert in delta.upsert {

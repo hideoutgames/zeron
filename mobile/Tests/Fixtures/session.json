@@ -1,0 +1,8 @@
+{
+  "lastCompletedTurn": "turn-1",
+  "chatId": "chat-1",
+  "deviceId": "dev-1",
+  "status": "awaitingInput",
+  "startedAt": "2026-01-02T03:00:00Z",
+  "updatedAt": "2026-01-02T03:04:05Z"
+}
