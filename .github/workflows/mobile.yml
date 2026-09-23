@@ -51,7 +51,7 @@ jobs:
       - name: Build iOS
         working-directory: mobile/Darwin
         run: |
-          xcodebuild -project ZeronMobile.xcodeproj -scheme ZeronMobile \
+          xcodebuild -project ZeronMobile.xcodeproj -scheme 'ZeronMobile App' \
             -destination 'generic/platform=iOS Simulator' \
             -skipPackagePluginValidation -skipMacroValidation \
-            CODE_SIGNING_ALLOWED=NO build
+            CODE_SIGNING_ALLOWED=NO SKIP_ACTION=none build

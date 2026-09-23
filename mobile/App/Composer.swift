@@ -111,8 +111,8 @@ struct Thumbnail: View {
 
     var body: some View {
         Group {
-            if let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
+            if let image = Image(data: data) {
+                image.resizable().scaledToFill()
             } else {
                 Image(systemName: "photo")
             }

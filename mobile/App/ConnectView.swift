@@ -14,8 +14,7 @@ struct ConnectView: View {
             Form {
                 Section {
                     TextField("host:port", text: $address)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
+                        .urlKeyboard()
                         .autocorrectionDisabled()
                     SecureField("Token", text: $token)
                         .submitLabel(.go)

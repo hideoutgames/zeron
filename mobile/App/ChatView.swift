@@ -25,7 +25,7 @@ struct ChatView: View {
             }
         }
         .navigationTitle(chat?.displayTitle ?? "")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineTitle()
         .toolbar {
             if let status {
                 SessionBadge(status: status)

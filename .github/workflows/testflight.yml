@@ -101,7 +101,7 @@ jobs:
       - name: Compile iOS app and tests
         working-directory: mobile/Darwin
         run: |
-          xcodebuild -project ZeronMobile.xcodeproj -scheme ZeronMobile \
+          xcodebuild -project ZeronMobile.xcodeproj -scheme 'ZeronMobile App' \
             -destination 'generic/platform=iOS Simulator' \
             -skipPackagePluginValidation -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO build
@@ -109,7 +109,7 @@ jobs:
       - name: Archive build
         working-directory: mobile/Darwin
         run: |
-          xcodebuild -project ZeronMobile.xcodeproj -scheme ZeronMobile \
+          xcodebuild -project ZeronMobile.xcodeproj -scheme 'ZeronMobile App' \
             -skipPackagePluginValidation -skipMacroValidation \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/Zeron.xcarchive" archive \

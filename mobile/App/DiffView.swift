@@ -50,7 +50,7 @@ struct DiffView: View {
                 }
             }
             .navigationTitle(chat.branch ?? "Changes")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 Button(action: { dismiss() }) {
                     Image(systemName: "xmark")

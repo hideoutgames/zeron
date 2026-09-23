@@ -1,7 +1,4 @@
 import SwiftUI
-#if !os(Android)
-import UIKit
-#endif
 import ZeronClient
 import ZeronGenerated
 
@@ -186,11 +183,8 @@ struct AttachmentImage: View {
         .task {
             do {
                 let data = try await Attachments.download(path, from: deviceId, via: app.connection)
-                if let decoded = UIImage(data: data) {
-                    image = Image(uiImage: decoded)
-                } else {
-                    failed = true
-                }
+                image = Image(data: data)
+                failed = image == nil
             } catch {
                 failed = true
             }
