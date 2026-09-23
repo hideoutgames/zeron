@@ -1,0 +1,16 @@
+{
+  "kind": "run",
+  "request": {
+    "prompt": "Fix it",
+    "harness": "codex",
+    "model": null,
+    "reasoning": null,
+    "modelOptions": {},
+    "cwd": "/repo",
+    "sandbox": "workspace-write",
+    "autoApprove": false,
+    "resume": null,
+    "attachments": ["/tmp/a.png"]
+  },
+  "messageId": "msg-9"
+}

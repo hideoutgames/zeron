@@ -1,0 +1,57 @@
+name: Mobile
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - 'crates/proto/**'
+      - 'crates/doc/**'
+      - 'crates/rpc/**'
+      - '.github/workflows/mobile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Wire compatibility. Non-blocking for desktop-only changes until the
+  # mobile client ships; see mobile/Codegen/sync.sh for the local equivalent.
+  protocol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Generated bindings are current
+        run: mobile/Codegen/sync.sh --check
+      - name: Rust side of the wire fixtures
+        run: |
+          cargo test --locked -p zeron-doc --test mobile_fixtures
+          cargo test --locked -p zeron-rpc --lib mobile::
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip
+        run: brew install skiptools/skip/skip
+      - name: Swift side of the wire fixtures
+        working-directory: mobile
+        run: |
+          swift build --build-tests
+          swift test --skip-build --filter 'WireTests|TranscriptTests'
+      - name: Build iOS
+        working-directory: mobile/Darwin
+        run: |
+          xcodebuild -project ZeronMobile.xcodeproj -scheme 'ZeronMobile App' \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO SKIP_ACTION=none build

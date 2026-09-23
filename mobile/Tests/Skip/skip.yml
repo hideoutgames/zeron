@@ -1,0 +1,7 @@
+# Skip configuration for ZeronClientTests module
+
+#build:
+#  contents:
+
+skip:
+  mode: 'native'

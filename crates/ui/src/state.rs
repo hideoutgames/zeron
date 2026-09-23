@@ -135,6 +135,7 @@ struct InProcessEngine {
     /// Serves this engine to other viewports over the IPC port. `None` when the
     /// port was already taken — the window still works over its own transport.
     ipc_task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    mobile_task: Option<tokio::task::JoinHandle<()>>,
     client: RpcClient,
 }
 
@@ -156,6 +157,9 @@ impl EngineBackend for InProcessEngine {
             // `abort` only requests cancellation. Observe task completion so the
             // listener is closed before bootstrap reports an assembly failure.
             let _ = ipc.await;
+        }
+        if let Some(mobile) = &self.mobile_task {
+            mobile.abort();
         }
         if let Some(runtime) = self.runtime.lock().await.take() {
             runtime.shutdown().await;
@@ -345,7 +349,8 @@ impl EngineHandle {
         //
         // Best-effort — losing the bind race with another engine costs other
         // viewports, not this one.
-        let ipc_task = match zeron_engine::serve_ipc(engine_config.ipc_port, service).await {
+        let ipc_task = match zeron_engine::serve_ipc(engine_config.ipc_port, service.clone()).await
+        {
             Ok(task) => Some(task),
             Err(err) => {
                 tracing::warn!(
@@ -356,6 +361,12 @@ impl EngineHandle {
                 None
             }
         };
+        let mobile_task = zeron_engine::serve_mobile(&engine_config.data_dir, service)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::warn!(error = %err, "mobile adapter unavailable");
+                None
+            });
         let runtime = Arc::new(tokio::sync::Mutex::new(None));
         let runtime_for_boot = runtime.clone();
         let service_for_boot = assembled_service.clone();
@@ -415,6 +426,7 @@ impl EngineHandle {
                 boot_task,
                 refresh_task,
                 ipc_task: tokio::sync::Mutex::new(ipc_task),
+                mobile_task,
                 client,
             }),
             engine_info,

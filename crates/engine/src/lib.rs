@@ -898,7 +898,8 @@ impl Engine {
             inner: runtime.core().rpc_service(),
             stop_tx,
         });
-        let server = serve_ipc(config.ipc_port, service).await?;
+        let server = serve_ipc(config.ipc_port, service.clone()).await?;
+        let mobile = serve_mobile(&config.data_dir, service).await?;
 
         tokio::select! {
             result = shutdown_signal() => result?,
@@ -918,6 +919,9 @@ impl Engine {
         }
         tracing::info!("shutting down");
         server.abort();
+        if let Some(mobile) = mobile {
+            mobile.abort();
+        }
         runtime.shutdown().await;
         Ok(())
     }
@@ -972,6 +976,48 @@ pub async fn serve_ipc(
     Ok(tokio::spawn(zeron_rpc::serve_ws_listener(
         listener, service,
     )))
+}
+
+/// Serve the mobile adapter when `ZERON_MOBILE_LISTEN` names a bind address
+/// (for example `0.0.0.0:7444`). Off by default: nothing off-host can reach an
+/// engine that has not opted in.
+///
+/// The bearer token lives at `<data_dir>/mobile-token`, created on first use
+/// and readable only by the owner. Phones present it in the handshake and are
+/// held to [`zeron_rpc::mobile::MOBILE_METHODS`].
+pub async fn serve_mobile(
+    data_dir: &std::path::Path,
+    service: std::sync::Arc<dyn zeron_rpc::RpcService>,
+) -> std::io::Result<Option<tokio::task::JoinHandle<()>>> {
+    let Ok(listen) = std::env::var("ZERON_MOBILE_LISTEN") else {
+        return Ok(None);
+    };
+    let token_path = data_dir.join("mobile-token");
+    let token = match std::fs::read_to_string(&token_path) {
+        Ok(token) if !token.trim().is_empty() => token.trim().to_string(),
+        _ => {
+            let token = uuid::Uuid::new_v4().simple().to_string();
+            write_private(&token_path, &token)?;
+            token
+        }
+    };
+    let listener = tokio::net::TcpListener::bind(&listen).await?;
+    tracing::info!(%listen, token_file = %token_path.display(), "mobile adapter listening");
+    Ok(Some(tokio::spawn(
+        zeron_rpc::mobile::serve_mobile_listener(listener, service, token.into()),
+    )))
+}
+
+fn write_private(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    use std::io::Write;
+    options.open(path)?.write_all(contents.as_bytes())
 }
 
 /// Block until the WorkOS session is signed in AND org-scoped. On a TTY, print the

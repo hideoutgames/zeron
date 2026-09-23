@@ -1,0 +1,32 @@
+{
+  "id": "msg-1",
+  "role": "assistant",
+  "parts": [
+    { "kind": "text", "id": "p1", "text": "Hello" },
+    { "kind": "reasoning", "id": "p2", "text": "thinking" },
+    {
+      "kind": "tool",
+      "id": "p3",
+      "call": { "kind": "exec", "command": "ls" },
+      "isError": false,
+      "resolved": true,
+      "output": "a b",
+      "diffStats": [{ "path": "a.rs", "additions": 1, "deletions": 2 }]
+    },
+    { "kind": "image", "id": "p4", "path": "/tmp/a.png", "name": "a.png", "mimeType": "image/png" },
+    {
+      "kind": "input",
+      "id": "p5",
+      "requestId": "req-1",
+      "questions": [
+        { "id": "q1", "header": "Scope", "question": "Which?", "options": ["A", "B"], "multiSelect": true }
+      ],
+      "resolved": false
+    },
+    { "kind": "error", "id": "p6", "message": "boom" }
+  ],
+  "createdAt": 1767225600000,
+  "deviceId": "dev-1",
+  "status": "complete",
+  "durationMs": 1200
+}

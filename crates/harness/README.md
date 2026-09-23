@@ -62,7 +62,6 @@ It asserts that the returned Settings descriptor changes from uninstalled/disabl
 to installed/enabled. It never runs a vendor shell installer. Set `TMPDIR` to a
 scratch directory before running it with `--ignored --nocapture`.
 
-The iOS app adds no Install action. `HarnessDescriptor.can_install` already has
-`#[serde(default)]` (`crates/engine/src/registry.rs`); iOS's `WireHarness: Decodable`
-in `apps/ios/Zeron/Sync/WorkspaceStore.swift` ignores unrecognized keys, including
-`canInstall`. `HarnessCatalog` continues consuming the existing mapped fields.
+The mobile client adds no Install action and does not consume harness
+descriptors. `HarnessDescriptor.can_install` already has `#[serde(default)]`
+(`crates/engine/src/registry.rs`).
