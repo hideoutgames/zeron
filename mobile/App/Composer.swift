@@ -27,11 +27,11 @@ struct Composer: View {
             HStack(alignment: .bottom, spacing: 10) {
                 ImagePicker(images: $images)
                 TextField(working ? "Steer" : "Message", text: $text, axis: .vertical)
-                    .lineLimit(1...6)
+                    .lineLimit(6)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 18))
+                    .background(.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
                     .onSubmit(submit)
                 if working {
                     Button(action: transcript.interrupt) {
@@ -92,8 +92,8 @@ struct AttachmentStrip: View {
                         .overlay(alignment: .topTrailing) {
                             Button { images.remove(at: index) } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .symbolRenderingMode(.palette)
-                                    .foregroundStyle(.white, .black.opacity(0.6))
+                                    .foregroundStyle(.white)
+                                    .shadow(radius: 2)
                             }
                             .accessibilityLabel("Remove image")
                             .offset(x: 6, y: -6)

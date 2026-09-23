@@ -15,13 +15,11 @@ struct ChatView: View {
     var body: some View {
         Group {
             if let transcript, let chat {
-                TranscriptView(transcript: transcript, chat: chat)
-                    .safeAreaInset(edge: .bottom) {
-                        VStack(spacing: 0) {
-                            PendingBar(transcript: transcript)
-                            Composer(transcript: transcript, chat: chat, status: status)
-                        }
-                    }
+                VStack(spacing: 0) {
+                    TranscriptView(transcript: transcript, chat: chat)
+                    PendingBar(transcript: transcript)
+                    Composer(transcript: transcript, chat: chat, status: status)
+                }
             } else {
                 ProgressView()
             }
@@ -64,7 +62,7 @@ struct SessionBadge: View {
     var body: some View {
         switch status {
         case .working:
-            ProgressView().controlSize(.small).accessibilityLabel("Working")
+            ProgressView().accessibilityLabel("Working")
         case .awaitingInput:
             Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange).accessibilityLabel("Needs input")
         case .errored:

@@ -22,7 +22,7 @@ struct DiffView: View {
                                     Text(file.path)
                                         .font(.footnote.monospaced())
                                         .lineLimit(1)
-                                        .truncationMode(.middle)
+                                        .truncatedMiddle()
                                     Spacer()
                                     DiffStat(additions: file.additions, deletions: file.deletions)
                                 }
@@ -81,7 +81,7 @@ struct PatchText: View {
                 }
             }
             .font(.caption.monospaced())
-            .textSelection(.enabled)
+            .selectable()
         }
     }
 

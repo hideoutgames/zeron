@@ -38,7 +38,7 @@ struct UserBubble: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
-                .textSelection(.enabled)
+                .selectable()
         }
     }
 }
@@ -47,17 +47,18 @@ struct PartView: View {
     let part: MessagePart
     let chat: Chat
     let transcript: Transcript
+    @State var showReasoning = false
 
     var body: some View {
         switch part {
         case .text(let text):
             MarkdownText(text: text.text)
         case .reasoning(let reasoning):
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: $showReasoning) {
                 Text(reasoning.text)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                    .selectable()
             } label: {
                 Label("Thinking", systemImage: "brain")
                     .font(.footnote)
@@ -86,10 +87,10 @@ struct MarkdownText: View {
 
     var body: some View {
         #if os(Android)
-        Text(text).textSelection(.enabled)
+        Text(text).selectable()
         #else
         Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
-            .textSelection(.enabled)
+            .selectable()
         #endif
     }
 }
@@ -106,14 +107,14 @@ struct ToolRow: View {
             Text(subject)
                 .font(.footnote.monospaced())
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncatedMiddle()
             Spacer()
             if let stats = tool.diffStats, !stats.isEmpty {
                 DiffStat(additions: stats.map(\.additions).reduce(0, +), deletions: stats.map(\.deletions).reduce(0, +))
             }
         }
         .foregroundStyle(.secondary)
-        .accessibilityElement(children: .combine)
+        .combinedAccessibility()
     }
 
     private var symbol: String {

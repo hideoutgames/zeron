@@ -87,7 +87,7 @@ struct IndicatorDot: View {
         Circle()
             .fill(color)
             .frame(width: 8, height: 8)
-            .accessibilityLabel(label)
+            .accessibilityLabel(Text(label))
     }
 
     private var color: Color {

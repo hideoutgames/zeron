@@ -46,7 +46,7 @@ struct QuestionCard: View {
             }
         }
         .padding()
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 14))
+        .background(.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 14))
         .disabled(answered)
         .opacity(answered ? 0.6 : 1)
     }
