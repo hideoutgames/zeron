@@ -132,6 +132,12 @@ public actor DemoHost: Transport {
         }
         if var done = transcripts[chatId]?.first(where: { $0.id == entryId }), done.status == .streaming {
             done.status = .complete
+            for index in done.parts.indices {
+                if case .tool(var tool) = done.parts[index] {
+                    tool.resolved = true
+                    done.parts[index] = .tool(tool)
+                }
+            }
             upsert(done, in: chatId)
         }
         setStatus(.idle, in: chatId)
