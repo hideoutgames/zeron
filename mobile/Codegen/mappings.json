@@ -1,0 +1,116 @@
+{
+  "sources": [
+    "crates/proto/src/entities.rs",
+    "crates/proto/src/agent.rs",
+    "crates/proto/src/workspace.rs",
+    "crates/doc/src/schema.rs",
+    "crates/doc/src/parts.rs",
+    "crates/doc/src/commands.rs",
+    "crates/doc/src/transcript_delta.rs"
+  ],
+  "methods": "crates/rpc/src/lib.rs",
+  "roots": [
+    "Device",
+    "Space",
+    "Chat",
+    "Session",
+    "EngineInfo",
+    "SessionMessageEntry",
+    "TranscriptFrame",
+    "SessionCommandPayload",
+    "CheckoutDiff"
+  ],
+  "unknownVariant": [
+    "MessagePart",
+    "ToolCall"
+  ],
+  "lenient": [
+    "Chat.config"
+  ],
+  "requests": {
+    "ChatParams": {
+      "chatId": "String"
+    },
+    "QueueCommandParams": {
+      "chatId": "String",
+      "command": "SessionCommandPayload"
+    },
+    "CheckoutDiffParams": {
+      "cwd": "String",
+      "chatId": "String?",
+      "targetDeviceId": "String?"
+    },
+    "UploadChunkParams": {
+      "uploadId": "String",
+      "seq": "Int",
+      "data": "String",
+      "targetDeviceId": "String?"
+    },
+    "UploadCommitParams": {
+      "uploadId": "String",
+      "fileName": "String",
+      "targetDeviceId": "String?"
+    },
+    "ReadAttachmentChunkParams": {
+      "path": "String",
+      "offset": "Int",
+      "targetDeviceId": "String?"
+    }
+  },
+  "rpc": {
+    "EngineInfo": {
+      "reply": "EngineInfo"
+    },
+    "WatchDevices": {
+      "stream": "[Device]"
+    },
+    "WatchSpaces": {
+      "stream": "[Space]"
+    },
+    "WatchChats": {
+      "stream": "[Chat]"
+    },
+    "WatchSessions": {
+      "stream": "[Session]"
+    },
+    "WatchDocMessages": {
+      "params": "ChatParams",
+      "stream": "TranscriptFrame"
+    },
+    "QueueCommand": {
+      "params": "QueueCommandParams",
+      "reply": "QueuedCommand"
+    },
+    "GetCheckoutDiff": {
+      "params": "CheckoutDiffParams",
+      "reply": "CheckoutDiff"
+    },
+    "UploadChunk": {
+      "params": "UploadChunkParams",
+      "reply": "JSONValue"
+    },
+    "UploadCommit": {
+      "params": "UploadCommitParams",
+      "reply": "UploadCommitted"
+    },
+    "ReadAttachmentChunk": {
+      "params": "ReadAttachmentChunkParams",
+      "reply": "AttachmentChunk"
+    }
+  },
+  "replies": {
+    "QueuedCommand": {
+      "commandId": "String"
+    },
+    "UploadCommitted": {
+      "path": "String"
+    },
+    "AttachmentChunk": {
+      "name": "String",
+      "mimeType": "String",
+      "data": "String",
+      "nextOffset": "Int",
+      "done": "Bool"
+    }
+  }
+}
