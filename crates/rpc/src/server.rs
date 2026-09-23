@@ -174,13 +174,17 @@ async fn serve_ws_socket(stream: TcpStream, service: Arc<dyn RpcService>) {
         }
         Ok(resp)
     };
-    let ws = match tokio_tungstenite::accept_hdr_async(stream, reject_cross_origin).await {
-        Ok(ws) => ws,
-        Err(err) => {
-            tracing::warn!(error = %err, "rpc: websocket handshake failed");
-            return;
-        }
-    };
+    match tokio_tungstenite::accept_hdr_async(stream, reject_cross_origin).await {
+        Ok(ws) => serve_ws_stream(ws, service).await,
+        Err(err) => tracing::warn!(error = %err, "rpc: websocket handshake failed"),
+    }
+}
+
+/// Serve one accepted WebSocket until either side closes.
+pub(crate) async fn serve_ws_stream(
+    ws: tokio_tungstenite::WebSocketStream<TcpStream>,
+    service: Arc<dyn RpcService>,
+) {
     let (mut sink, mut ws_stream) = ws.split();
     let (out_tx, mut out_rx) = mpsc::channel::<String>(256);
     let (in_tx, in_rx) = mpsc::channel::<String>(256);
