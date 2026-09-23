@@ -22,6 +22,13 @@ struct ConnectView: View {
                 } footer: {
                     Text("Zeron > Settings > Mobile")
                 }
+                Section {
+                    Button {
+                        app.connect(.demo)
+                    } label: {
+                        Label("Demo", systemImage: "play.circle")
+                    }
+                }
             }
             .navigationTitle("Zeron")
             .toolbar {

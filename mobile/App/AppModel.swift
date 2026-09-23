@@ -11,22 +11,30 @@ final class AppModel {
     private(set) var endpoint: Endpoint?
 
     init() {
-        if let saved = Endpoint.load() {
+        if ProcessInfo.processInfo.environment["ZERON_DEMO"] != nil {
+            connect(.demo)
+        } else if let saved = Endpoint.load() {
             connect(saved)
         }
     }
 
     func connect(_ endpoint: Endpoint) {
-        endpoint.save()
         self.endpoint = endpoint
-        connection.connect(endpoint)
+        if endpoint.isDemo {
+            connection.connect(endpoint) { _ in DemoHost() }
+        } else {
+            endpoint.save()
+            connection.connect(endpoint)
+        }
         workspace.start(connection)
     }
 
     func signOut() {
         workspace.stop()
         connection.disconnect()
-        Endpoint.forget()
+        if endpoint?.isDemo == false {
+            Endpoint.forget()
+        }
         endpoint = nil
     }
 }

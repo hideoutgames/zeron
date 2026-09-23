@@ -19,6 +19,10 @@ public struct Endpoint: Hashable, Sendable {
         self.init(url: url, token: token)
     }
 
+    /// Not a host: routes the app to the built-in `DemoHost`.
+    public static let demo = Endpoint(url: URL(string: "demo://zeron")!, token: "demo")
+    public var isDemo: Bool { url.scheme == "demo" }
+
     private static let urlKey = "zeron.endpoint.url"
     private static let tokenKey = "zeron.endpoint.token"
 

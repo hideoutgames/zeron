@@ -18,16 +18,17 @@ public final class Connection {
     public private(set) var endpoint: Endpoint?
     public private(set) var engine: EngineInfo?
 
-    @ObservationIgnored private var socket: RpcSocket?
+    @ObservationIgnored private var socket: (any Transport)?
     @ObservationIgnored private var loop: Task<Void, Never>?
-    @ObservationIgnored private var waiters: [CheckedContinuation<RpcSocket, Never>] = []
+    @ObservationIgnored private var waiters: [CheckedContinuation<any Transport, Never>] = []
 
     public init() {}
 
-    public func connect(_ endpoint: Endpoint) {
+    /// `open` makes each attempt's transport; the default speaks to a real host.
+    public func connect(_ endpoint: Endpoint, open: @escaping @Sendable (Endpoint) -> any Transport = { RpcSocket(endpoint: $0) }) {
         disconnect()
         self.endpoint = endpoint
-        loop = Task { await run(endpoint) }
+        loop = Task { await run(endpoint, open) }
     }
 
     public func disconnect() {
@@ -66,16 +67,16 @@ public final class Connection {
 
     // MARK: - Lifecycle
 
-    private func live() async -> RpcSocket {
+    private func live() async -> any Transport {
         if let socket { return socket }
         return await withCheckedContinuation { waiters.append($0) }
     }
 
-    private func run(_ endpoint: Endpoint) async {
+    private func run(_ endpoint: Endpoint, _ open: @Sendable (Endpoint) -> any Transport) async {
         var delay: Double = 1
         while !Task.isCancelled {
             status = .connecting
-            let candidate = RpcSocket(endpoint: endpoint)
+            let candidate = open(endpoint)
             do {
                 engine = try await candidate.call(Rpc.engineInfo, NoParams())
             } catch RpcError.unauthorized {

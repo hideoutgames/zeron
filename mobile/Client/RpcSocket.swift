@@ -10,11 +10,44 @@ public enum RpcError: Error, Equatable {
     case unauthorized
 }
 
+/// Anything that answers Zeron RPC methods with JSON. Normally an `RpcSocket`.
+public protocol Transport: Actor {
+    func call(_ method: String, _ params: Data) async throws -> Data
+    func stream(_ method: String, _ params: Data) -> AsyncThrowingStream<Data, Error>
+    func close()
+    /// Resolves when the transport dies for any reason.
+    func closed() async
+}
+
+extension Transport {
+    public func call<P, R>(_ rpc: UnaryRpc<P, R>, _ params: P) async throws -> R {
+        let data = try await call(rpc.method, JSONEncoder.zeron.encode(params))
+        return try JSONDecoder.zeron.decode(R.self, from: data)
+    }
+
+    public func stream<P, I>(_ rpc: StreamRpc<P, I>, _ params: P) -> AsyncThrowingStream<I, Error> {
+        let (stream, continuation) = AsyncThrowingStream<I, Error>.makeStream()
+        let task = Task {
+            do {
+                let encoded = try JSONEncoder.zeron.encode(params)
+                for try await data in await self.stream(rpc.method, encoded) {
+                    continuation.yield(try JSONDecoder.zeron.decode(I.self, from: data))
+                }
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
+    }
+}
+
 /// One WebSocket carrying Zeron's ndjson RPC envelopes.
 ///
 /// Frames out: `{id, method, params}` or `{id, cancel: true}`.
 /// Frames in: `{id, ok}` for unary replies, `{id, item}`... `{id, done}` for streams, `{id, err}` on failure.
-public actor RpcSocket {
+public actor RpcSocket: Transport {
     private let task: URLSessionWebSocketTask
     private var nextId: UInt64 = 1
     private var unary: [UInt64: CheckedContinuation<Data, Error>] = [:]
@@ -35,7 +68,6 @@ public actor RpcSocket {
         Task { await receiveLoop() }
     }
 
-    /// Resolves when the socket dies for any reason.
     public func closed() async {
         if isClosed { return }
         await withCheckedContinuation { closeWaiters.append($0) }
@@ -46,23 +78,19 @@ public actor RpcSocket {
         fail(RpcError.closed)
     }
 
-    public func call<P, R>(_ rpc: UnaryRpc<P, R>, _ params: P) async throws -> R {
-        let id = try await send(method: rpc.method, params: params)
-        let data = try await withCheckedThrowingContinuation { unary[id] = $0 }
-        return try JSONDecoder.zeron.decode(R.self, from: data)
+    public func call(_ method: String, _ params: Data) async throws -> Data {
+        let id = try await send(method: method, params: params)
+        return try await withCheckedThrowingContinuation { unary[id] = $0 }
     }
 
-    public func stream<P, I>(_ rpc: StreamRpc<P, I>, _ params: P) -> AsyncThrowingStream<I, Error> {
-        let (stream, continuation) = AsyncThrowingStream<I, Error>.makeStream()
+    public func stream(_ method: String, _ params: Data) -> AsyncThrowingStream<Data, Error> {
+        let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
         Task {
             do {
-                let id = try await send(method: rpc.method, params: params)
+                let id = try await send(method: method, params: params)
                 subscribe(id, Subscriber(
-                    item: { data in
-                        do { continuation.yield(try JSONDecoder.zeron.decode(I.self, from: data)) }
-                        catch { continuation.finish(throwing: error) }
-                    },
-                    finish: { error in continuation.finish(throwing: error) }
+                    item: { continuation.yield($0) },
+                    finish: { continuation.finish(throwing: $0) }
                 ))
                 continuation.onTermination = { _ in Task { await self.cancel(id) } }
             } catch {
@@ -74,13 +102,12 @@ public actor RpcSocket {
 
     // MARK: - Wire
 
-    private func send<P: Encodable>(method: String, params: P) async throws -> UInt64 {
+    private func send(method: String, params: Data) async throws -> UInt64 {
         if isClosed { throw RpcError.closed }
         let id = nextId
         nextId += 1
         var frame: [String: Any] = ["id": id, "method": method]
-        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder.zeron.encode(params))
-        if let object = encoded as? [String: Any], !object.isEmpty {
+        if let object = try JSONSerialization.jsonObject(with: params) as? [String: Any], !object.isEmpty {
             frame["params"] = object
         }
         try await write(frame)
