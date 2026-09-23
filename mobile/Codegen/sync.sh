@@ -29,7 +29,7 @@ git -C "$root" diff --stat "$locked" "$head" -- $sources crates/rpc/src | sed 's
 python3 "$root/mobile/Codegen/generate.py"
 (cd "$root" && cargo test --locked -p zeron-doc --test mobile_fixtures)
 (cd "$root" && cargo test --locked -p zeron-rpc --lib mobile::)
-(cd "$root/mobile" && swift build --target ZeronClientTests && swift test --skip-build --filter 'WireTests|TranscriptTests')
+(cd "$root/mobile" && swift build --build-tests && swift test --skip-build --filter 'WireTests|TranscriptTests')
 
 skip_version=$(skip version | awk '{print $NF}')
 printf '{\n  "upstream": "%s",\n  "skip": "%s"\n}\n' "$head" "$skip_version" > "$lock"

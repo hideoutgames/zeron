@@ -46,7 +46,7 @@ jobs:
       - name: Swift side of the wire fixtures
         working-directory: mobile
         run: |
-          swift build --target ZeronClientTests
+          swift build --build-tests
           swift test --skip-build --filter 'WireTests|TranscriptTests'
       - name: Build iOS
         working-directory: mobile/Darwin
