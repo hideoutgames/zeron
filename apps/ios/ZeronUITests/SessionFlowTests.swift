@@ -320,22 +320,21 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertNotEqual(input.value as? String, "Half-written idea")
     }
 
-    /// New-session search, provider switching, and model settings share one picker.
+    /// New-session provider tabs, search, and model settings share one
+    /// picker; a tab only browses and a row tap picks.
     func testModelPickerInNewSession() {
         let app = launch(["-route", "new"])
         let chip = app.buttons["composer-chip-model"]
         XCTAssertTrue(chip.waitForExistence(timeout: 10))
         chip.tap()
-        let search = app.textFields["model-search"]
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap()
-        search.typeText("sonnet")
-        let sonnet = app.cells["model-row-claude-sonnet-5"]
-        XCTAssertTrue(sonnet.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.cells["model-row-claude-opus-5"].exists)
-        sonnet.tap()
-        XCTAssertTrue(waitForLabel(chip, containing: "Sonnet 5"))
-        app.buttons["model-tab-codex"].tap()
+        let codex = app.buttons["model-tab-codex"]
+        XCTAssertTrue(codex.waitForExistence(timeout: 5))
+        codex.tap()
+        let astra = app.cells["model-row-gpt-6-astra"]
+        XCTAssertTrue(astra.waitForExistence(timeout: 5))
+        XCTAssertFalse(chip.label.contains("GPT-6-Astra"), "a tab browses without picking")
+        XCTAssertFalse(app.buttons["model-setting-serviceTier"].exists)
+        astra.tap()
         XCTAssertTrue(waitForLabel(chip, containing: "GPT-6-Astra"))
         XCTAssertTrue(chip.label.contains("Standard"))
         let tier = app.buttons["model-setting-serviceTier"]
@@ -343,6 +342,17 @@ final class SessionFlowTests: XCTestCase {
         tier.tap()
         app.buttons["Fast"].firstMatch.tap()
         XCTAssertTrue(waitForLabel(chip, containing: "Fast"))
+        let search = app.textFields["model-search"]
+        search.tap()
+        search.typeText("sonnet")
+        XCTAssertTrue(app.staticTexts["No models found"].waitForExistence(timeout: 5), "the query stays in the viewed tab")
+        app.buttons["model-tab-claude-code"].tap()
+        let sonnet = app.cells["model-row-claude-sonnet-5"]
+        XCTAssertTrue(sonnet.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.cells["model-row-claude-opus-5"].exists)
+        XCTAssertTrue(chip.label.contains("GPT-6-Astra"), "a tab browses without picking")
+        sonnet.tap()
+        XCTAssertTrue(waitForLabel(chip, containing: "Sonnet 5"))
         dismissPopover(app)
     }
 

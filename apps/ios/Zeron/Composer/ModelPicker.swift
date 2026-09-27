@@ -36,7 +36,6 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
     private var catalog: ModelCatalog
     private var selection: ModelSelection
     private let locked: Bool
-    private var remembered: [String: String]
     private var favorites = ModelFavorites.keys
     private var providers: [ModelCatalog.Provider] = []
     private var rows: [ModelPickerRow] = []
@@ -44,7 +43,6 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
     private var viewedTab: ModelPickerTab
     private var tabButtons: [TabButton] = []
     private var settingRows: [ModelSettingRow] = []
-    private var scrollMode: ScrollMode = .picked
     private var didScrollInitially = false
     private var onDismiss: (() -> Void)?
     private let listPage = UIView()
@@ -65,11 +63,10 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
 
     var onChange: ((ModelSelection) -> Void)?
 
-    init(catalog: ModelCatalog, selection: ModelSelection, locked: Bool, remembered: [String: String] = [:]) {
+    init(catalog: ModelCatalog, selection: ModelSelection, locked: Bool) {
         self.catalog = catalog
         self.selection = selection
         self.locked = locked
-        self.remembered = remembered
         self.groups = catalog.settingGroups(for: selection)
         self.viewedTab = !locked && !ModelFavorites.isEmpty ? .favorites : .provider(selection.harness)
         super.init(nibName: nil, bundle: nil)
@@ -107,10 +104,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         searchField.spellCheckingType = .no
         searchField.delegate = self
         searchField.accessibilityIdentifier = "model-search"
-        searchField.addAction(UIAction { [weak self] _ in
-            self?.scrollMode = .top
-            self?.reload()
-        }, for: .editingChanged)
+        searchField.addAction(UIAction { [weak self] _ in self?.reload(scrollingTo: .top) }, for: .editingChanged)
         listPage.addSubview(searchField)
 
         var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
@@ -123,7 +117,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         list.delegate = self
         cellRegistration = UICollectionView.CellRegistration<ModelRowCell, ModelPickerRow> { [weak self] cell, _, row in
             guard let self else { return }
-            let picked = row.harness == self.selection.harness && row.model.id == self.pickedModel(in: row.harness)
+            let picked = self.isPicked(row)
             let starred = self.favorites.contains(.init(harness: row.harness, model: row.model.id))
             let configurable = !row.selectedOnly && (!self.locked || row.harness == self.selection.harness)
                 && ModelCatalog.isConfiguredInPlace(row.model)
@@ -243,7 +237,6 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         guard catalog != self.catalog else { return }
         self.catalog = catalog
         if isViewLoaded {
-            scrollMode = .keep
             reload()
         } else {
             groups = catalog.settingGroups(for: selection)
@@ -272,9 +265,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         let row = rows[indexPath.item]
         guard !row.selectedOnly, !locked || row.harness == selection.harness else { return }
         UISelectionFeedbackGenerator().selectionChanged()
-        rememberCurrentModel()
-        remembered[row.harness] = row.model.id
-        commit(ModelSelection(harness: row.harness, model: row.model.id, effort: selection.effort, options: selection.options), scroll: .keep)
+        commit(ModelSelection(harness: row.harness, model: row.model.id, effort: selection.effort, options: selection.options))
         if ModelCatalog.isConfiguredInPlace(row.model) { openCard() }
     }
 
@@ -284,29 +275,15 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
             + ModelPickerMetrics.trayHeight(groups.count) + CGFloat(rules) / max(1, traitCollection.displayScale)
     }
 
-    private func pickedModel(in harness: String) -> String? {
-        guard harness == selection.harness else { return nil }
-        return selection.model ?? providers.first(where: { $0.id == harness })?.models.first?.id
-    }
-
-    private func rememberCurrentModel() {
-        if let model = pickedModel(in: selection.harness) { remembered[selection.harness] = model }
+    private func isPicked(_ row: ModelPickerRow) -> Bool {
+        guard row.harness == selection.harness else { return false }
+        return row.model.id == (selection.model ?? providers.first(where: { $0.id == row.harness })?.models.first?.id)
     }
 
     private func show(_ tab: ModelPickerTab) {
         guard tab != viewedTab else { return }
         viewedTab = tab
-        scrollMode = .picked
-        if case .provider(let id) = tab, !locked, id != selection.harness {
-            rememberCurrentModel()
-            let provider = providers.first { $0.id == id }
-            let model = remembered[id].flatMap { remembered in
-                provider?.models.contains(where: { $0.id == remembered }) == true ? remembered : nil
-            }
-            commit(ModelSelection(harness: id, model: model, effort: selection.effort, options: selection.options), scroll: .picked)
-        } else {
-            reload()
-        }
+        reload(scrollingTo: .picked)
         let reduceMotion = UIAccessibility.isReduceMotionEnabled
         if reduceMotion {
             layoutIndicator()
@@ -322,19 +299,17 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         UISelectionFeedbackGenerator().selectionChanged()
         ModelFavorites.toggle(.init(harness: row.harness, model: row.model.id))
         favorites = ModelFavorites.keys
-        scrollMode = .keep
         reload()
     }
 
-    private func commit(_ next: ModelSelection, scroll: ScrollMode = .keep) {
+    private func commit(_ next: ModelSelection) {
         guard next != selection else { return }
         selection = next
         onChange?(next)
-        scrollMode = scroll
         reload()
     }
 
-    private func reload() {
+    private func reload(scrollingTo mode: ScrollMode = .keep) {
         let oldTabs = providers.map(\.id)
         providers = catalog.tabs(for: selection, locked: locked)
         if case .provider(let id) = viewedTab, !providers.contains(where: { $0.id == id }) {
@@ -354,8 +329,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         emptyNote.isHidden = !rows.isEmpty
         syncTray()
         syncCard()
-        if view.window != nil { scroll(to: scrollMode) }
-        scrollMode = .keep
+        if view.window != nil { scroll(to: mode) }
     }
 
     private func syncTabs(rebuild: Bool) {
@@ -504,7 +478,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         updatePreferredHeight()
         view.setNeedsLayout()
         transitionPages(toCard: false)
-        let picked = rows.firstIndex { $0.harness == selection.harness && $0.model.id == pickedModel(in: $0.harness) }
+        let picked = rows.firstIndex(where: isPicked)
         UIAccessibility.post(notification: .screenChanged, argument: picked.flatMap { list.cellForItem(at: IndexPath(item: $0, section: 0)) })
     }
 
@@ -555,11 +529,11 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         switch mode {
         case .keep:
             break
-        case .top:
-            list.setContentOffset(CGPoint(x: 0, y: -list.adjustedContentInset.top), animated: false)
-        case .picked:
-            if let index = rows.firstIndex(where: { $0.harness == selection.harness && $0.model.id == pickedModel(in: $0.harness) }) {
+        case .top, .picked:
+            if mode == .picked, let index = rows.firstIndex(where: isPicked) {
                 list.scrollToItem(at: IndexPath(item: index, section: 0), at: .centeredVertically, animated: false)
+            } else {
+                list.setContentOffset(CGPoint(x: 0, y: -list.adjustedContentInset.top), animated: false)
             }
         }
     }

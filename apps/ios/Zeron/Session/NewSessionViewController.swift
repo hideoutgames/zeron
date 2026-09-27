@@ -13,8 +13,6 @@ struct NewSessionDraft: Equatable, Codable {
     /// Non-default option picks; only choices the model offers are sent.
     /// Optional so drafts saved before this field still decode.
     var modelOptions: [String: String]?
-    /// Last model per harness, so returning to a provider tab restores it.
-    var modelByHarness: [String: String]?
 
     var modelSelection: ModelSelection {
         get { ModelSelection(harness: harness, model: model, effort: effort, options: modelOptions ?? [:]) }
@@ -23,11 +21,6 @@ struct NewSessionDraft: Equatable, Codable {
             model = newValue.model
             effort = newValue.effort
             modelOptions = newValue.options.isEmpty ? nil : newValue.options
-            if let model = newValue.model {
-                var remembered = modelByHarness ?? [:]
-                remembered[newValue.harness] = model
-                modelByHarness = remembered
-            }
         }
     }
 }
@@ -346,12 +339,7 @@ final class NewSessionViewController: UIViewController, UIGestureRecognizerDeleg
     /// catalog on every open like desktop.
     private func presentModelPicker(from chip: UIView) {
         guard presentedViewController == nil else { return }
-        let picker = ModelPickerViewController(
-            catalog: catalog,
-            selection: draft.modelSelection,
-            locked: false,
-            remembered: draft.modelByHarness ?? [:]
-        )
+        let picker = ModelPickerViewController(catalog: catalog, selection: draft.modelSelection, locked: false)
         picker.onChange = { [weak self] pick in
             self?.draft.modelSelection = pick
             self?.refreshChips()
