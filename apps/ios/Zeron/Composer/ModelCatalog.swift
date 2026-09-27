@@ -165,7 +165,7 @@ struct ModelCatalog: Equatable {
             result.append(SettingGroup(
                 setting: .effort,
                 label: "Effort",
-                choices: levels.map { .init(id: $0, label: Self.effortLabel($0), isDefault: $0 == defaultChoice) },
+                choices: levels.map { .init(id: $0, label: reasoningLabel(level: $0), isDefault: $0 == defaultChoice) },
                 selected: effort(for: selection)
             ))
         }
@@ -206,14 +206,14 @@ struct ModelCatalog: Equatable {
     func chipDetail(for selection: ModelSelection) -> [ComposerChip.Detail] {
         guard let model = modelInfo(for: selection) else {
             var detail: [ComposerChip.Detail] = []
-            if let effort = selection.effort { detail.append(.init(text: Self.effortLabel(effort))) }
+            if let effort = selection.effort { detail.append(.init(text: reasoningLabel(level: effort))) }
             if let tier = selection.options[Self.serviceTier] { detail.append(.init(text: Self.serviceTierLabel(tier))) }
             return detail
         }
         var detail: [ComposerChip.Detail] = []
         let levels = ladder(for: selection)
         if let resolvedEffort = effort(for: selection) {
-            detail.append(.init(text: Self.effortLabel(resolvedEffort), emphasized: resolvedEffort != Self.defaultEffort(levels)))
+            detail.append(.init(text: reasoningLabel(level: resolvedEffort), emphasized: resolvedEffort != Self.defaultEffort(levels)))
         }
         if let tier = model.options.first(where: { $0.id == Self.serviceTier }) {
             let effective = selection.options[tier.id].flatMap { picked in
@@ -320,15 +320,6 @@ struct ModelCatalog: Equatable {
         return result
     }
 
-    private static var effortLabels: [String: String] = [:]
-
-    private static func effortLabel(_ level: String) -> String {
-        if let label = effortLabels[level] { return label }
-        let label = reasoningLabel(level: level)
-        effortLabels[level] = label
-        return label
-    }
-
     private static func serviceTierLabel(_ id: String) -> String {
         switch id {
         case "default": return "Standard"
@@ -361,19 +352,14 @@ enum ModelFavorites {
     static var keys: Set<Key> { Set(stored) }
     static var isEmpty: Bool { stored.isEmpty }
 
-    @discardableResult
-    static func toggle(_ key: Key) -> Bool {
-        let starred: Bool
+    static func toggle(_ key: Key) {
         if let index = stored.firstIndex(of: key) {
             stored.remove(at: index)
-            starred = false
         } else {
             stored.append(key)
-            starred = true
         }
         if AppModel.persistsNewSession {
             UserDefaults.standard.set(stored.map { ["harness": $0.harness, "model": $0.model] }, forKey: "modelFavorites")
         }
-        return starred
     }
 }

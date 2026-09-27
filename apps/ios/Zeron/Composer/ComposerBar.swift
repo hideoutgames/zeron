@@ -497,12 +497,12 @@ final class ComposerBar: UIView, UITextViewDelegate, UIGestureRecognizerDelegate
             for (index, detail) in chip.detail.enumerated() {
                 if index > 0 {
                     var separator = AttributedString(" · ")
-                    separator.font = Fonts.ui(.sansMedium, 13.5)
+                    separator.font = titleFont
                     separator.foregroundColor = Palette.secondary
                     attributed.append(separator)
                 }
                 var part = AttributedString(detail.text)
-                part.font = Fonts.ui(.sansMedium, 13.5)
+                part.font = titleFont
                 part.foregroundColor = detail.emphasized ? Palette.text.withAlphaComponent(0.85) : Palette.secondary
                 attributed.append(part)
             }

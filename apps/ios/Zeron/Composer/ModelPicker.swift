@@ -174,11 +174,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         let bottomHeight = groups.isEmpty ? 0 : line
         let listHeight = max(0, bounds.maxY - y - bottomHeight - trayHeight)
         list.frame = CGRect(x: bounds.minX, y: y, width: bounds.width, height: listHeight)
-        if listHeight > 0 {
-            emptyNote.frame = list.frame.insetBy(dx: 20, dy: 0)
-        } else {
-            emptyNote.frame = list.frame
-        }
+        emptyNote.frame = list.frame.insetBy(dx: min(20, list.frame.width / 2), dy: 0)
         y += listHeight
         bottomRule.isHidden = groups.isEmpty
         bottomRule.frame = CGRect(x: bounds.minX, y: y, width: bounds.width, height: line)
@@ -317,7 +313,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         }
         syncTabs(rebuild: oldTabs != providers.map(\.id))
         rows = ModelCatalog.rows(viewedTab, in: providers, query: searchField.text ?? "", selection: selection, favorites: favorites)
-        list?.reloadData()
+        list.reloadData()
         let query = (searchField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty {
             emptyNote.text = "No models found"
