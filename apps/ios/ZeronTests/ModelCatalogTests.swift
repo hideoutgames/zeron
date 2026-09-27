@@ -83,19 +83,52 @@ final class ModelCatalogTests: XCTestCase {
 
     func testSettingGroupsAndPicking() {
         let tier = option("serviceTier", "Service Tier", [choice("default", "Standard"), choice("fast", "Fast")], default: "default")
-        let lead = option("lead", "Lead", [choice("sonnet", "Sonnet"), choice("opus", "Opus")], default: "sonnet")
-        let models = catalog([.init(id: "codex", label: "Codex", models: [model("one", "One", reasoning: ["low", "high"], options: [tier, lead])])])
+        let context = option("contextWindow", "Context Window", [choice("200k", "200K"), choice("1m", "1M")], default: "200k")
+        let models = catalog([.init(id: "codex", label: "Codex", models: [model("one", "One", reasoning: ["low", "high"], options: [tier, context])])])
         let selection = ModelSelection(harness: "codex", model: "one", options: ["serviceTier": "fast"])
         let groups = models.settingGroups(for: selection)
-        XCTAssertEqual(groups.map(\.label), ["Lead", "Effort", "Service Tier"])
-        XCTAssertEqual(groups[0].selectedChoice?.label, "Sonnet")
-        XCTAssertEqual(groups[1].selectedChoice?.label, "High")
-        XCTAssertTrue(groups[1].selectedChoice?.isDefault == true)
-        XCTAssertEqual(groups[2].selectedChoice?.label, "Fast")
-        XCTAssertFalse(groups[2].selectedChoice?.isDefault ?? true)
+        XCTAssertEqual(groups.map(\.label), ["Effort", "Service Tier", "Context Window"])
+        XCTAssertEqual(groups[0].selectedChoice?.label, "High")
+        XCTAssertTrue(groups[0].selectedChoice?.isDefault == true)
+        XCTAssertEqual(groups[1].selectedChoice?.label, "Fast")
+        XCTAssertFalse(groups[1].selectedChoice?.isDefault ?? true)
+        XCTAssertEqual(groups[2].selectedChoice?.label, "200K")
+        XCTAssertEqual(models.cardGroups(for: selection), [])
 
         let picked = models.picking("default", for: .option("serviceTier"), in: selection)
         XCTAssertNil(picked.options["serviceTier"])
+    }
+
+    /// Devin Fusion (desktop `configured_in_place`): no tray; its card reads
+    /// Lead, Effort, Sidekick, then the Fast Mode switch.
+    func testFusionSettingsLiveInItsCard() throws {
+        let lead = option("lead", "Lead", [choice("fable", "Claude Fable 5.1"), choice("sol", "GPT-6 Sol")], default: "fable")
+        let sidekick = option("sidekick", "Sidekick", [choice("swe-medium", "SWE-2 Medium"), choice("swe-high", "SWE-2 High")], default: "swe-medium")
+        let speed = option("speed", "Fast Mode", [choice("standard", "Standard"), choice("fast", "Fast")], default: "standard")
+        let fusion = model("fusion", "Fusion", reasoning: ["low", "medium", "high", "max"], options: [lead, sidekick, speed])
+        let adaptive = model("adaptive", "Adaptive")
+        let models = catalog([.init(id: "devin", label: "Devin", models: [adaptive, fusion])])
+        XCTAssertTrue(ModelCatalog.isConfiguredInPlace(fusion))
+        XCTAssertFalse(ModelCatalog.isConfiguredInPlace(adaptive))
+
+        let selection = ModelSelection(harness: "devin", model: "fusion", options: ["sidekick": "swe-high"])
+        XCTAssertEqual(models.settingGroups(for: selection), [])
+        let card = models.cardGroups(for: selection)
+        XCTAssertEqual(card.map(\.label), ["Lead", "Effort", "Sidekick", "Fast Mode"])
+        XCTAssertEqual(card.map(\.isToggle), [false, false, false, true])
+        XCTAssertEqual(card[0].selectedChoice?.label, "Claude Fable 5.1")
+        XCTAssertEqual(card[1].selectedChoice?.label, "High")
+        XCTAssertEqual(card[2].selectedChoice?.label, "SWE-2 High")
+        XCTAssertFalse(card[3].isOn)
+
+        let next = try XCTUnwrap(card[3].toggledChoice)
+        let fast = models.picking(next.id, for: card[3].setting, in: selection)
+        XCTAssertEqual(fast.options["speed"], "fast")
+        let flipped = models.cardGroups(for: fast)[3]
+        XCTAssertTrue(flipped.isOn)
+        let back = try XCTUnwrap(flipped.toggledChoice)
+        XCTAssertNil(models.picking(back.id, for: flipped.setting, in: fast).options["speed"])
+        XCTAssertEqual(models.cardGroups(for: .init(harness: "devin", model: "adaptive")), [])
     }
 
     func testChipDetailLabelsAndEmphasis() {

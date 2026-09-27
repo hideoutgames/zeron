@@ -57,9 +57,20 @@ struct ModelCatalog: Equatable {
         let choices: [Choice]
         let selected: String?
         var selectedChoice: Choice? { choices.first { $0.id == selected } }
+        /// Desktop `is_toggle`: a two-choice option is a card switch (Fast
+        /// Mode), on at its non-default choice. Lead and Sidekick always pick
+        /// from a list.
+        var isToggle: Bool {
+            guard case .option(let id) = setting else { return false }
+            return choices.count == 2 && !ModelCatalog.pairOptions.contains(id)
+        }
+        var isOn: Bool { selectedChoice.map { !$0.isDefault } ?? false }
+        var toggledChoice: Choice? { choices.first { $0.id != selected } }
     }
 
     static let serviceTier = "serviceTier"
+    /// Devin Fusion's options that pick the pair it runs.
+    private static let pairOptions: Set<String> = ["lead", "sidekick"]
     var providers: [Provider]
 
     static func fallback() -> ModelCatalog {
@@ -121,15 +132,37 @@ struct ModelCatalog: Equatable {
         return ModelSelection(harness: selection.harness, model: model.id, effort: effort(for: selection), options: options(for: selection))
     }
 
-    /// Desktop `build_setting_groups`; Lead comes first for Devin Fusion
-    /// (`card_order`).
+    /// Desktop `configured_in_place`: a model whose options pick what it runs
+    /// (Devin Fusion) is set up from its own card, never the tray.
+    static func isConfiguredInPlace(_ model: ModelInfo) -> Bool {
+        model.options.contains { $0.id == "lead" }
+    }
+
+    /// The tray under the model list (desktop `setting_groups`): empty for a
+    /// model configured in place.
     func settingGroups(for selection: ModelSelection) -> [SettingGroup] {
-        guard let model = modelInfo(for: selection) else { return [] }
+        guard let model = modelInfo(for: selection), !Self.isConfiguredInPlace(model) else { return [] }
+        return groups(for: selection, model: model)
+    }
+
+    /// A model configured in place, read like Devin's own Fusion panel
+    /// (desktop `card_order`): Lead, Effort, Sidekick, then switches.
+    func cardGroups(for selection: ModelSelection) -> [SettingGroup] {
+        guard let model = modelInfo(for: selection), Self.isConfiguredInPlace(model) else { return [] }
+        var result = groups(for: selection, model: model)
+        if let lead = result.firstIndex(where: { $0.setting == .option("lead") }), lead != 0 {
+            result.insert(result.remove(at: lead), at: 0)
+        }
+        return result
+    }
+
+    /// Desktop `build_setting_groups`.
+    private func groups(for selection: ModelSelection, model: ModelInfo) -> [SettingGroup] {
         let levels = ladder(for: selection)
-        var groups: [SettingGroup] = []
+        var result: [SettingGroup] = []
         if !levels.isEmpty {
             let defaultChoice = Self.defaultEffort(levels)
-            groups.append(SettingGroup(
+            result.append(SettingGroup(
                 setting: .effort,
                 label: "Effort",
                 choices: levels.map { .init(id: $0, label: Self.effortLabel($0), isDefault: $0 == defaultChoice) },
@@ -140,17 +173,14 @@ struct ModelCatalog: Equatable {
             let selected = selection.options[option.id].flatMap { choice in
                 option.choices.contains(where: { $0.id == choice }) ? choice : nil
             } ?? option.defaultChoice
-            groups.append(SettingGroup(
+            result.append(SettingGroup(
                 setting: .option(option.id),
                 label: option.label,
                 choices: option.choices.map { .init(id: $0.id, label: $0.label, isDefault: $0.id == option.defaultChoice) },
                 selected: selected
             ))
         }
-        if let lead = groups.firstIndex(where: { $0.setting == .option("lead") }), lead != 0 {
-            groups.insert(groups.remove(at: lead), at: 0)
-        }
-        return groups
+        return result
     }
 
     func picking(_ choice: String, for setting: Setting, in selection: ModelSelection) -> ModelSelection {

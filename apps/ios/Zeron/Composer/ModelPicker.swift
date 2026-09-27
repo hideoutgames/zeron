@@ -13,13 +13,18 @@ private enum ModelPickerMetrics {
     static func trayHeight(_ count: Int) -> CGFloat {
         count == 0 ? 0 : CGFloat(count) * settingRow + trayPadding * 2
     }
+
+    static func cardHeight(_ count: Int, line: CGFloat) -> CGFloat {
+        settingRow + line + CGFloat(count) * settingRow + trayPadding * 2
+    }
 }
 
 /// The desktop HarnessModel picker as a popover anchored to the composer's
 /// model chip, with the same system Liquid Glass as the anchored Wallpaper
 /// Effect action sheet. Favorites and provider tabs lead to scoped search, a
 /// fixed-height model list with stars, and glass menus for the picked model's
-/// settings. Picks keep it open like desktop; a tap outside closes it.
+/// settings. Picks keep it open like desktop; a tap outside closes it. A model
+/// configured in place (Devin Fusion) opens its own card.
 final class ModelPickerViewController: UIViewController, UIPopoverPresentationControllerDelegate, UICollectionViewDataSource, UICollectionViewDelegate, UITextFieldDelegate {
     private enum ScrollMode { case keep, top, picked }
 
@@ -42,6 +47,9 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
     private var scrollMode: ScrollMode = .picked
     private var didScrollInitially = false
     private var onDismiss: (() -> Void)?
+    private let listPage = UIView()
+    private var card: ModelConfigCard?
+    private var cardOpen = false
 
     private let tabScroll = FadingScrollView()
     private let indicator = UIView()
@@ -75,19 +83,19 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         view.accessibilityIdentifier = "model-picker"
 
         tabScroll.showsHorizontalScrollIndicator = false
-        view.addSubview(tabScroll)
+        listPage.addSubview(tabScroll)
         indicator.backgroundColor = Palette.accent
         indicator.layer.cornerRadius = 1
         tabScroll.addSubview(indicator)
 
         for rule in [topRule, middleRule, bottomRule] {
             rule.backgroundColor = Palette.cardRule
-            view.addSubview(rule)
+            listPage.addSubview(rule)
         }
 
         searchIcon.tintColor = Palette.tertiary
         searchIcon.contentMode = .center
-        view.addSubview(searchIcon)
+        listPage.addSubview(searchIcon)
         searchField.font = Fonts.ui(.sans, TypeScale.size(15.5))
         searchField.textColor = Palette.text
         searchField.tintColor = Palette.accent
@@ -103,7 +111,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
             self?.scrollMode = .top
             self?.reload()
         }, for: .editingChanged)
-        view.addSubview(searchField)
+        listPage.addSubview(searchField)
 
         var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
         configuration.backgroundColor = .clear
@@ -117,24 +125,45 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
             guard let self else { return }
             let picked = row.harness == self.selection.harness && row.model.id == self.pickedModel(in: row.harness)
             let starred = self.favorites.contains(.init(harness: row.harness, model: row.model.id))
-            cell.configure(row, picked: picked, starred: starred, twoLine: self.viewedTab == .favorites)
+            let configurable = !row.selectedOnly && (!self.locked || row.harness == self.selection.harness)
+                && ModelCatalog.isConfiguredInPlace(row.model)
+            cell.configure(row, picked: picked, starred: starred, twoLine: self.viewedTab == .favorites, configurable: configurable)
             cell.onStar = { [weak self] in self?.toggleStar(row) }
         }
-        view.addSubview(list)
+        listPage.addSubview(list)
 
         emptyNote.font = Fonts.ui(.sans, TypeScale.size(13.5))
         emptyNote.textColor = Palette.secondary
         emptyNote.textAlignment = .center
         emptyNote.numberOfLines = 0
         emptyNote.isUserInteractionEnabled = false
-        view.addSubview(emptyNote)
-        view.addSubview(tray)
+        listPage.addSubview(emptyNote)
+        listPage.addSubview(tray)
+        view.addSubview(listPage)
         reload()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        let bounds = view.bounds.inset(by: view.safeAreaInsets)
+        let area = view.bounds.inset(by: view.safeAreaInsets)
+        if let card { place(card, in: area) }
+        // Under the card the list keeps its full height, so going back never
+        // re-lays it out mid-fade.
+        var page = area
+        if cardOpen { page.size.height = max(area.height, idealHeight()) }
+        place(listPage, in: page)
+        layoutListPage()
+    }
+
+    /// Pages slide by transform, so they're placed by bounds and center, never
+    /// frame.
+    private func place(_ page: UIView, in rect: CGRect) {
+        page.bounds = CGRect(origin: .zero, size: rect.size)
+        page.center = CGPoint(x: rect.midX, y: rect.midY)
+    }
+
+    private func layoutListPage() {
+        let bounds = listPage.bounds
         let scale = max(1, traitCollection.displayScale)
         let line = 1 / scale
         let trayHeight = ModelPickerMetrics.trayHeight(groups.count)
@@ -184,7 +213,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
     }
 
     @objc private func dismissOnEscape() {
-        dismiss(animated: true)
+        cardOpen ? closeCard() : dismiss(animated: true)
     }
 
     func adaptivePresentationStyle(for controller: UIPresentationController, traitCollection: UITraitCollection) -> UIModalPresentationStyle {
@@ -246,6 +275,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         rememberCurrentModel()
         remembered[row.harness] = row.model.id
         commit(ModelSelection(harness: row.harness, model: row.model.id, effort: selection.effort, options: selection.options), scroll: .keep)
+        if ModelCatalog.isConfiguredInPlace(row.model) { openCard() }
     }
 
     private func idealHeight() -> CGFloat {
@@ -323,6 +353,7 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
         }
         emptyNote.isHidden = !rows.isEmpty
         syncTray()
+        syncCard()
         if view.window != nil { scroll(to: scrollMode) }
         scrollMode = .keep
     }
@@ -415,19 +446,107 @@ final class ModelPickerViewController: UIViewController, UIPopoverPresentationCo
             settingRows.removeLast().removeFromSuperview()
         }
         for (index, group) in groups.enumerated() {
-            let actions = group.choices.map { choice in
-                UIAction(title: choice.label, subtitle: choice.isDefault ? "Default" : nil, state: choice.id == group.selected ? .on : .off) { [weak self] _ in
-                    guard let self else { return }
-                    self.commit(self.catalog.picking(choice.id, for: group.setting, in: self.selection))
-                }
-            }
-            settingRows[index].configure(group, menu: UIMenu(title: group.label, options: .singleSelection, children: actions))
+            settingRows[index].configure(group, menu: menu(for: group))
         }
         bottomRule.isHidden = groups.isEmpty
-        if countChanged {
-            preferredContentSize.height = idealHeight()
-            view.setNeedsLayout()
+        if countChanged { updatePreferredHeight() }
+    }
+
+    /// A setting's native glass menu, tray and card alike.
+    private func menu(for group: ModelCatalog.SettingGroup) -> UIMenu {
+        let actions = group.choices.map { choice in
+            UIAction(title: choice.label, subtitle: choice.isDefault ? "Default" : nil, state: choice.id == group.selected ? .on : .off) { [weak self] _ in
+                guard let self else { return }
+                self.commit(self.catalog.picking(choice.id, for: group.setting, in: self.selection))
+            }
         }
+        return UIMenu(title: group.label, options: .singleSelection, children: actions)
+    }
+
+    private func updatePreferredHeight() {
+        let line = 1 / max(1, traitCollection.displayScale)
+        let height = cardOpen ? ModelPickerMetrics.cardHeight(catalog.cardGroups(for: selection).count, line: line) : idealHeight()
+        guard preferredContentSize.height != height else { return }
+        preferredContentSize.height = height
+        view.setNeedsLayout()
+    }
+
+    private func openCard() {
+        guard !cardOpen, !catalog.cardGroups(for: selection).isEmpty else { return }
+        view.endEditing(true)
+        cardOpen = true
+        let card = self.card ?? makeCard()
+        syncCard()
+        card.layoutIfNeeded()
+        listPage.accessibilityElementsHidden = true
+        transitionPages(toCard: true)
+        UIAccessibility.post(notification: .screenChanged, argument: card.header)
+    }
+
+    private func makeCard() -> ModelConfigCard {
+        let card = ModelConfigCard()
+        card.isHidden = true
+        card.onBack = { [weak self] in self?.closeCard() }
+        card.onToggle = { [weak self] group in
+            guard let self, let next = group.toggledChoice else { return }
+            self.commit(self.catalog.picking(next.id, for: group.setting, in: self.selection))
+        }
+        view.addSubview(card)
+        place(card, in: view.bounds.inset(by: view.safeAreaInsets))
+        self.card = card
+        return card
+    }
+
+    private func closeCard() {
+        guard cardOpen else { return }
+        cardOpen = false
+        listPage.accessibilityElementsHidden = false
+        updatePreferredHeight()
+        view.setNeedsLayout()
+        transitionPages(toCard: false)
+        let picked = rows.firstIndex { $0.harness == selection.harness && $0.model.id == pickedModel(in: $0.harness) }
+        UIAccessibility.post(notification: .screenChanged, argument: picked.flatMap { list.cellForItem(at: IndexPath(item: $0, section: 0)) })
+    }
+
+    /// The card follows the live selection and closes once that is no longer
+    /// configured in place.
+    private func syncCard() {
+        guard cardOpen, let card else { return }
+        let cardGroups = catalog.cardGroups(for: selection)
+        guard !cardGroups.isEmpty else { return closeCard() }
+        card.configure(title: catalog.title(for: selection), groups: cardGroups, menu: menu(for:))
+        updatePreferredHeight()
+    }
+
+    /// Desktop opens the card beside the menu; here it slides over the list
+    /// like a pushed page.
+    private func transitionPages(toCard: Bool) {
+        guard let card else { return }
+        let incoming: UIView = toCard ? card : listPage
+        let outgoing: UIView = toCard ? listPage : card
+        let shift: CGFloat = UIAccessibility.isReduceMotionEnabled ? 0 : 28
+        if incoming.isHidden {
+            incoming.isHidden = false
+            incoming.alpha = 0
+            incoming.transform = CGAffineTransform(translationX: toCard ? shift : -shift, y: 0)
+        }
+        let settle = {
+            incoming.alpha = 1
+            incoming.transform = .identity
+            outgoing.alpha = 0
+            outgoing.transform = CGAffineTransform(translationX: toCard ? -shift : shift, y: 0)
+        }
+        let finish: (Bool) -> Void = { [weak self] _ in
+            guard let self, self.cardOpen == toCard else { return }
+            outgoing.isHidden = true
+            outgoing.alpha = 1
+            outgoing.transform = .identity
+        }
+        guard view.window != nil else {
+            settle()
+            return finish(true)
+        }
+        UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.beginFromCurrentState], animations: settle, completion: finish)
     }
 
     private func scroll(to mode: ScrollMode) {
@@ -455,6 +574,7 @@ final class ModelRowCell: UICollectionViewListCell {
     private let brand = UIImageView()
     private let provider = FadingLabel()
     private let star = UIButton(configuration: .plain())
+    private let disclosure = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
     private var picked = false
     private var twoLine = false
 
@@ -468,11 +588,13 @@ final class ModelRowCell: UICollectionViewListCell {
         brand.tintColor = Palette.secondary
         provider.font = Fonts.ui(.sans, TypeScale.size(12.5))
         provider.textColor = Palette.secondary
+        disclosure.tintColor = Palette.tertiary
+        disclosure.contentMode = .center
         var starConfiguration = UIButton.Configuration.plain()
         starConfiguration.contentInsets = .zero
         star.configuration = starConfiguration
         star.addAction(UIAction { [weak self] _ in self?.onStar?() }, for: .touchUpInside)
-        for subview in [title, attribution, brand, provider, star] as [UIView] { contentView.addSubview(subview) }
+        for subview in [title, attribution, brand, provider, star, disclosure] as [UIView] { contentView.addSubview(subview) }
         isAccessibilityElement = true
     }
 
@@ -498,10 +620,11 @@ final class ModelRowCell: UICollectionViewListCell {
         backgroundConfiguration = background
     }
 
-    func configure(_ row: ModelPickerRow, picked: Bool, starred: Bool, twoLine: Bool) {
+    func configure(_ row: ModelPickerRow, picked: Bool, starred: Bool, twoLine: Bool, configurable: Bool) {
         let pickedChanged = self.picked != picked
         self.picked = picked
         self.twoLine = twoLine
+        disclosure.isHidden = !configurable
         title.text = row.model.label
         let description = row.model.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let showAttribution = row.ambiguous && !description.isEmpty && description.caseInsensitiveCompare(row.providerLabel) != .orderedSame
@@ -520,6 +643,7 @@ final class ModelRowCell: UICollectionViewListCell {
         accessibilityTraits = picked ? [.button, .selected] : .button
         accessibilityValue = starred ? "Favorite" : nil
         accessibilityIdentifier = "model-row-\(row.model.id)"
+        accessibilityHint = configurable ? "Shows its settings" : nil
         accessibilityCustomActions = row.selectedOnly ? [] : [UIAccessibilityCustomAction(name: starred ? "Remove from Favorites" : "Add to Favorites") { [weak self] _ in
             self?.onStar?()
             return true
@@ -534,7 +658,8 @@ final class ModelRowCell: UICollectionViewListCell {
         let textX: CGFloat = 18
         let starX = bounds.width - 50
         star.frame = CGRect(x: starX, y: 0, width: 44, height: bounds.height)
-        let available = max(0, starX - textX - 4)
+        disclosure.frame = disclosure.isHidden ? .zero : CGRect(x: starX - 14, y: 0, width: 14, height: bounds.height)
+        let available = max(0, (disclosure.isHidden ? starX : disclosure.frame.minX) - textX - 4)
         let k = TypeScale.factor
         let titleHeight = (20 * k).rounded()
         let lineHeight = (16 * k).rounded()
@@ -606,6 +731,12 @@ final class ModelSettingRow: UIButton {
         setNeedsLayout()
     }
 
+    /// The menu opens from the value on the trailing side, not the row's
+    /// leading edge.
+    override func menuAttachmentPoint(for configuration: UIContextMenuConfiguration) -> CGPoint {
+        CGPoint(x: chevron.frame.maxX, y: super.menuAttachmentPoint(for: configuration).y)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         let bounds = self.bounds
@@ -614,5 +745,145 @@ final class ModelSettingRow: UIButton {
         let valueWidth = min(bounds.width / 2, ceil(value.sizeThatFits(CGSize(width: bounds.width / 2, height: bounds.height)).width))
         value.frame = CGRect(x: chevronX - 10 - valueWidth, y: 0, width: valueWidth, height: bounds.height)
         name.frame = CGRect(x: 18, y: 0, width: max(0, value.frame.minX - 28), height: bounds.height)
+    }
+}
+
+/// Desktop `render_config_card`: a model configured in place (Devin Fusion)
+/// as its own page — its name (tap to go back), setting rows with their glass
+/// menus, then switches.
+final class ModelConfigCard: UIView {
+    var onBack: (() -> Void)?
+    var onToggle: ((ModelCatalog.SettingGroup) -> Void)?
+    let header = UIButton(configuration: .plain())
+    private let rule = UIView()
+    private var settingRows: [ModelSettingRow] = []
+    private var toggleRows: [ModelToggleRow] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold))
+        configuration.imagePadding = 8
+        configuration.imageColorTransformer = UIConfigurationColorTransformer { _ in Palette.secondary }
+        configuration.baseForegroundColor = Palette.text
+        configuration.titleLineBreakMode = .byTruncatingTail
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            attributes.font = Fonts.ui(.sansSemibold, TypeScale.size(15))
+            return attributes
+        }
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+        configuration.background.cornerRadius = 12
+        configuration.background.backgroundInsets = NSDirectionalEdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6)
+        header.configuration = configuration
+        header.contentHorizontalAlignment = .leading
+        header.configurationUpdateHandler = { button in
+            var update = button.configuration
+            update?.background.backgroundColor = button.isHighlighted ? Palette.controlFill : .clear
+            button.configuration = update
+        }
+        header.addAction(UIAction { [weak self] _ in self?.onBack?() }, for: .primaryActionTriggered)
+        header.accessibilityLabel = "Back"
+        header.accessibilityIdentifier = "model-card-back"
+        rule.backgroundColor = Palette.cardRule
+        addSubview(header)
+        addSubview(rule)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(title: String, groups: [ModelCatalog.SettingGroup], menu: (ModelCatalog.SettingGroup) -> UIMenu) {
+        header.configuration?.title = title
+        header.accessibilityValue = title
+        let pickers = groups.filter { !$0.isToggle }
+        let switches = groups.filter(\.isToggle)
+        while settingRows.count < pickers.count {
+            let row = ModelSettingRow()
+            addSubview(row)
+            settingRows.append(row)
+        }
+        while settingRows.count > pickers.count {
+            settingRows.removeLast().removeFromSuperview()
+        }
+        for (index, group) in pickers.enumerated() {
+            settingRows[index].configure(group, menu: menu(group))
+        }
+        while toggleRows.count < switches.count {
+            let row = ModelToggleRow()
+            addSubview(row)
+            toggleRows.append(row)
+        }
+        while toggleRows.count > switches.count {
+            toggleRows.removeLast().removeFromSuperview()
+        }
+        for (index, group) in switches.enumerated() {
+            let row = toggleRows[index]
+            row.configure(group)
+            row.onChange = { [weak self] in self?.onToggle?(group) }
+        }
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let line = 1 / max(1, traitCollection.displayScale)
+        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: ModelPickerMetrics.settingRow)
+        rule.frame = CGRect(x: 0, y: header.frame.maxY, width: bounds.width, height: line)
+        var y = rule.frame.maxY + ModelPickerMetrics.trayPadding
+        for row in settingRows {
+            row.frame = CGRect(x: 0, y: y, width: bounds.width, height: ModelPickerMetrics.settingRow)
+            y += ModelPickerMetrics.settingRow
+        }
+        for row in toggleRows {
+            row.frame = CGRect(x: 0, y: y, width: bounds.width, height: ModelPickerMetrics.settingRow)
+            y += ModelPickerMetrics.settingRow
+        }
+    }
+
+    override func accessibilityPerformEscape() -> Bool {
+        onBack?()
+        return true
+    }
+}
+
+/// A card switch (desktop `toggle_switch`), on at the option's non-default
+/// choice.
+final class ModelToggleRow: UIView {
+    var onChange: (() -> Void)?
+    private let name = UILabel()
+    private let toggle = UISwitch()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        name.font = Fonts.ui(.sansMedium, TypeScale.size(15))
+        name.textColor = Palette.text
+        name.isAccessibilityElement = false
+        toggle.onTintColor = Palette.accent
+        toggle.addAction(UIAction { [weak self] _ in self?.onChange?() }, for: .valueChanged)
+        addSubview(name)
+        addSubview(toggle)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(_ group: ModelCatalog.SettingGroup) {
+        name.text = group.label
+        if toggle.isOn != group.isOn { toggle.setOn(group.isOn, animated: window != nil) }
+        toggle.accessibilityLabel = group.label
+        if case .option(let id) = group.setting {
+            toggle.accessibilityIdentifier = "model-toggle-\(id)"
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = toggle.intrinsicContentSize
+        toggle.frame = CGRect(
+            x: bounds.width - 18 - size.width,
+            y: ((bounds.height - size.height) / 2).rounded(),
+            width: size.width,
+            height: size.height
+        )
+        name.frame = CGRect(x: 18, y: 0, width: max(0, toggle.frame.minX - 28), height: bounds.height)
     }
 }

@@ -26,6 +26,11 @@ final class SessionFlowTests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    private func waitForValue(_ element: XCUIElement, _ value: String, timeout: TimeInterval = 5) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     private func dismissPopover(_ app: XCUIApplication) {
         let region = app.otherElements["PopoverDismissRegion"]
         if region.exists {
@@ -338,6 +343,42 @@ final class SessionFlowTests: XCTestCase {
         tier.tap()
         app.buttons["Fast"].firstMatch.tap()
         XCTAssertTrue(waitForLabel(chip, containing: "Fast"))
+        dismissPopover(app)
+    }
+
+    /// Devin Fusion keeps its settings in its own card (Lead, Effort,
+    /// Sidekick, then a Fast Mode switch): tapping its row picks it and opens
+    /// the card; the card's back row returns to the list.
+    func testFusionCardInNewSession() {
+        let app = launch(["-route", "new"])
+        let chip = app.buttons["composer-chip-model"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10))
+        chip.tap()
+        let devin = app.buttons["model-tab-devin"]
+        XCTAssertTrue(devin.waitForExistence(timeout: 5))
+        devin.tap()
+        let fusion = app.cells["model-row-fusion"]
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        fusion.tap()
+        XCTAssertTrue(waitForLabel(chip, containing: "Fusion"))
+        let lead = app.buttons["model-setting-lead"]
+        XCTAssertTrue(lead.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["model-setting-effort"].exists)
+        XCTAssertTrue(app.buttons["model-setting-sidekick"].exists)
+        let fast = app.switches["model-toggle-speed"]
+        XCTAssertTrue(fast.exists)
+        snapshot(app, "fusion-card")
+        lead.tap()
+        let sol = app.buttons["GPT-6 Sol"].firstMatch
+        XCTAssertTrue(sol.waitForExistence(timeout: 5))
+        snapshot(app, "fusion-lead-menu")
+        sol.tap()
+        XCTAssertTrue(waitForValue(lead, "GPT-6 Sol"))
+        fast.tap()
+        XCTAssertTrue(waitForValue(fast, "1"))
+        app.buttons["model-card-back"].tap()
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        XCTAssertTrue(lead.waitForNonExistence(timeout: 5), "Fusion's settings stay out of the tray")
         dismissPopover(app)
     }
 
