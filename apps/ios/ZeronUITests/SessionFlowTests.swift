@@ -26,6 +26,15 @@ final class SessionFlowTests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    private func chooseModelOption(_ app: XCUIApplication, _ id: String) {
+        let popup = app.otherElements["model-choice-picker"]
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        let choice = app.descendants(matching: .any)["model-choice-\(id)"].firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        choice.tap()
+        XCTAssertTrue(popup.waitForNonExistence(timeout: 5), "choosing a value closes only the option popup")
+    }
+
     private func dismissModelDrawer(_ app: XCUIApplication) {
         let drawer = app.otherElements["model-picker"]
         XCTAssertTrue(drawer.waitForExistence(timeout: 5))
@@ -325,10 +334,9 @@ final class SessionFlowTests: XCTestCase {
         let effort = app.buttons["model-setting-effort"]
         XCTAssertTrue(effort.waitForExistence(timeout: 5))
         effort.tap()
-        let low = app.buttons["Low"].firstMatch
-        XCTAssertTrue(low.waitForExistence(timeout: 5))
-        snapshot(app, "effort-menu")
-        low.tap()
+        XCTAssertTrue(app.otherElements["model-choice-picker"].waitForExistence(timeout: 5))
+        snapshot(app, "effort-popup")
+        chooseModelOption(app, "low")
         XCTAssertTrue(waitForValue(effort, "Low"))
         dismissModelDrawer(app)
         XCTAssertTrue(chip.label.contains("Low"))
@@ -363,7 +371,7 @@ final class SessionFlowTests: XCTestCase {
         let effort = app.buttons["model-setting-effort"]
         XCTAssertTrue(effort.waitForExistence(timeout: 5))
         effort.tap()
-        app.buttons["Low"].firstMatch.tap()
+        chooseModelOption(app, "low")
         XCTAssertTrue(waitForValue(effort, "Low"))
         dismissModelDrawer(app)
         XCTAssertTrue(model.label.contains("Low"))
@@ -412,7 +420,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(tier.waitForExistence(timeout: 5))
         XCTAssertTrue(astra.isSelected)
         tier.tap()
-        app.buttons["Fast"].firstMatch.tap()
+        chooseModelOption(app, "fast")
         XCTAssertTrue(waitForValue(tier, "Fast"))
         let search = app.textFields["model-search"]
         search.tap()
@@ -524,9 +532,15 @@ final class SessionFlowTests: XCTestCase {
         chip.tap()
         let tier = app.buttons["model-setting-serviceTier"]
         XCTAssertTrue(tier.waitForExistence(timeout: 5))
+        let drawer = app.otherElements["model-picker"]
+        let drawerFrame = drawer.frame
         tier.tap()
-        app.buttons["Fast"].firstMatch.tap()
+        XCTAssertTrue(app.otherElements["model-choice-picker"].waitForExistence(timeout: 5))
+        snapshot(app, "service-tier-popup")
+        chooseModelOption(app, "fast")
         XCTAssertTrue(waitForValue(tier, "Fast"))
+        XCTAssertEqual(drawer.frame.minY, drawerFrame.minY, accuracy: 1)
+        XCTAssertEqual(drawer.frame.height, drawerFrame.height, accuracy: 1)
         dismissModelDrawer(app)
         XCTAssertTrue(chip.label.contains("Fast"))
     }

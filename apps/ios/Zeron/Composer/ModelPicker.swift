@@ -2,6 +2,7 @@ import UIKit
 
 private enum ModelPickerMetrics {
     static let cornerRadius: CGFloat = 26
+    static let rowCornerRadius: CGFloat = 12
     static let grabberClearance: CGFloat = 20
     static let tabs: CGFloat = 44
     static let tabWidth: CGFloat = 44
@@ -57,6 +58,8 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
     private let listPage = UIView()
     private weak var configPopup: ModelConfigViewController?
     private var configTarget: ModelIdentity?
+    private weak var choicePopup: ModelChoiceViewController?
+    private var choiceTarget: ModelIdentity?
 
     private let tabScroll = FadingScrollView()
     private let indicator = UIView()
@@ -121,6 +124,7 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
         configuration.showsSeparators = false
         list = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: configuration))
         list.backgroundColor = .clear
+        list.contentInsetAdjustmentBehavior = .never
         list.keyboardDismissMode = .onDrag
         list.contentInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
         list.dataSource = self
@@ -143,9 +147,13 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
         emptyNote.isUserInteractionEnabled = false
         listPage.addSubview(emptyNote)
         tray.keyboardDismissMode = .onDrag
+        // Layout below handles keyboard and device clearance once, without
+        // adding the sheet's own bottom safe-area padding to the scroll views.
+        tray.contentInsetAdjustmentBehavior = .never
         listPage.addSubview(tray)
         listPage.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(listPage)
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
         NSLayoutConstraint.activate([
             listPage.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ModelPickerMetrics.grabberClearance),
             listPage.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
@@ -162,6 +170,11 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
 
     private func layoutListPage() {
         let bounds = listPage.bounds
+        // A floating sheet has its own safe-area padding, which would leave
+        // a blank strip below the last option. Use only actual overlap with
+        // the window's home-indicator area; the page already tracks keyboard.
+        let deviceBottom = view.window.map { listPage.convert($0.safeAreaLayoutGuide.layoutFrame, from: $0).maxY } ?? bounds.maxY
+        let contentBottom = min(bounds.maxY, max(bounds.minY, deviceBottom))
         let scale = max(1, traitCollection.displayScale)
         let line = 1 / scale
         let desiredTrayHeight = ModelPickerMetrics.trayHeight(groups.count)
@@ -178,8 +191,8 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
         let bottomHeight = groups.isEmpty ? 0 : line
         // Keep a model row reachable even with a long options catalog or the
         // keyboard open; the pinned tray scrolls within the remaining budget.
-        let trayHeight = min(desiredTrayHeight, max(0, bounds.maxY - y - bottomHeight - ModelPickerMetrics.compactRow))
-        let listHeight = max(0, bounds.maxY - y - bottomHeight - trayHeight)
+        let trayHeight = min(desiredTrayHeight, max(0, contentBottom - y - bottomHeight - ModelPickerMetrics.compactRow))
+        let listHeight = max(0, contentBottom - y - bottomHeight - trayHeight)
         list.frame = CGRect(x: bounds.minX, y: y, width: bounds.width, height: listHeight)
         emptyNote.frame = list.frame.insetBy(dx: min(20, list.frame.width / 2), dy: 0)
         y += listHeight
@@ -188,6 +201,10 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
         y += bottomHeight
         tray.frame = CGRect(x: bounds.minX, y: y, width: bounds.width, height: trayHeight)
         tray.contentSize = CGSize(width: tray.bounds.width, height: desiredTrayHeight)
+        // Catalog/model changes can shorten a tray that was scrolled to its
+        // last setting. Keep its offset in range rather than leaving a gap.
+        let trayOffset = min(max(0, tray.contentOffset.y), max(0, desiredTrayHeight - trayHeight))
+        if tray.contentOffset.y != trayOffset { tray.contentOffset.y = trayOffset }
         for (index, row) in settingRows.enumerated() {
             row.frame = CGRect(x: 0, y: ModelPickerMetrics.trayPadding + CGFloat(index) * ModelPickerMetrics.settingRow, width: tray.bounds.width, height: ModelPickerMetrics.settingRow)
         }
@@ -219,7 +236,9 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
     }
 
     @objc private func dismissOnEscape() {
-        if let configPopup {
+        if let choicePopup {
+            choicePopup.dismiss(animated: true)
+        } else if let configPopup {
             configPopup.dismiss(animated: true)
         } else {
             dismiss(animated: true)
@@ -305,9 +324,10 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
     }
 
     private func idealHeight() -> CGFloat {
-        let rules = groups.isEmpty ? 2 : 3
+        // Reserve a stable budget for the list and settings together. Extra
+        // settings consume list space; they never move the drawer's detent.
         return ModelPickerMetrics.grabberClearance + ModelPickerMetrics.tabs + ModelPickerMetrics.search + ModelPickerMetrics.listIdeal
-            + ModelPickerMetrics.trayHeight(groups.count) + CGFloat(rules) / max(1, traitCollection.displayScale)
+            + ModelPickerMetrics.trayHeight(2) + 3 / max(1, traitCollection.displayScale)
     }
 
     private func isPicked(_ row: ModelPickerRow) -> Bool {
@@ -364,6 +384,7 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
         emptyNote.isHidden = !rows.isEmpty
         syncTray()
         syncCard()
+        syncChoices()
         if view.window != nil { scroll(to: mode) }
     }
 
@@ -447,9 +468,7 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
     }
 
     private func syncTray() {
-        let nextGroups = catalog.settingGroups(for: selection)
-        let countChanged = groups.count != nextGroups.count
-        groups = nextGroups
+        groups = catalog.settingGroups(for: selection)
         while settingRows.count < groups.count {
             let row = ModelSettingRow()
             tray.addSubview(row)
@@ -459,45 +478,70 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
             settingRows.removeLast().removeFromSuperview()
         }
         for (index, group) in groups.enumerated() {
-            settingRows[index].configure(group, menu: menu(for: group))
-        }
-        bottomRule.isHidden = groups.isEmpty
-        if countChanged { updatePreferredHeight() }
-    }
-
-    /// A setting's native glass menu, tray and card alike.
-    private func menu(for group: ModelCatalog.SettingGroup) -> UIMenu {
-        let target = settingTarget
-        let actions = group.choices.map { choice in
-            UIAction(title: choice.label, subtitle: choice.isDefault ? "Default" : nil, state: choice.id == group.selected ? .on : .off) { [weak self] _ in
-                guard let self, let current = self.currentGroup(group.setting, for: target),
-                      current.choices.contains(where: { $0.id == choice.id }) else { return }
-                self.commit(self.catalog.picking(choice.id, for: group.setting, in: self.selection))
+            let row = settingRows[index]
+            row.configure(group)
+            row.onOpen = { [weak self, weak row] in
+                guard let self, let row else { return }
+                self.openChoices(for: group, from: row, over: self)
             }
         }
-        return UIMenu(title: group.label, options: .singleSelection, children: actions)
+        bottomRule.isHidden = groups.isEmpty
+        view.setNeedsLayout()
     }
 
-    /// An open native menu can outlive a catalog refresh or a remote model
+    /// A separate presentation keeps the drawer (or Fusion card) intact;
+    /// a UIButton UIMenu can morph its enclosing Liquid Glass surface.
+    private func openChoices(for group: ModelCatalog.SettingGroup, from row: ModelSettingRow, over host: UIViewController) {
+        guard host.presentedViewController == nil, row.window != nil else { return }
+        let target = settingTarget
+        guard let current = currentGroup(group.setting, for: target) else { return }
+        host.view.endEditing(true)
+        host.view.layoutIfNeeded()
+        let popup = ModelChoiceViewController(group: current)
+        popup.onPick = { [weak self, weak popup] choice in
+            guard let self, let popup, self.choicePopup === popup,
+                  popup.presentingViewController != nil, !popup.isBeingDismissed,
+                  let current = self.currentGroup(group.setting, for: target),
+                  current.choices.contains(where: { $0.id == choice }) else { return }
+            self.choicePopup = nil
+            self.choiceTarget = nil
+            popup.dismiss(animated: true)
+            self.commit(self.catalog.picking(choice, for: group.setting, in: self.selection))
+        }
+        popup.modalPresentationStyle = .popover
+        if let popover = popup.popoverPresentationController {
+            popover.sourceView = row
+            popover.sourceRect = row.choiceAnchor
+            popover.permittedArrowDirections = [.up, .down]
+            popover.delegate = popup
+        }
+        choicePopup = popup
+        choiceTarget = target
+        host.present(popup, animated: true)
+    }
+
+    private func syncChoices() {
+        guard let popup = choicePopup else { return }
+        guard choiceTarget == settingTarget,
+              let group = currentGroup(popup.setting, for: settingTarget) else {
+            choicePopup = nil
+            choiceTarget = nil
+            // Dismissing Fusion also dismisses its choice popup. Do not start
+            // a second dismissal while that parent transition is underway.
+            if popup.presentingViewController?.isBeingDismissed != true, !popup.isBeingDismissed {
+                popup.dismiss(animated: true)
+            }
+            return
+        }
+        popup.update(group: group)
+    }
+
+    /// An open choices popup can outlive a catalog refresh or a remote model
     /// change. Only apply its action to the model and choices it still owns.
     private func currentGroup(_ setting: ModelCatalog.Setting, for target: ModelIdentity) -> ModelCatalog.SettingGroup? {
         guard target == settingTarget else { return nil }
         let current = catalog.settingGroups(for: selection) + catalog.cardGroups(for: selection)
         return current.first { $0.setting == setting }
-    }
-
-    private func updatePreferredHeight() {
-        let height = idealHeight()
-        guard preferredContentSize.height != height else { return }
-        preferredContentSize.height = height
-        if let sheet = sheetPresentationController {
-            if view.window != nil, !UIAccessibility.isReduceMotionEnabled {
-                sheet.animateChanges { sheet.invalidateDetents() }
-            } else {
-                sheet.invalidateDetents()
-            }
-        }
-        view.setNeedsLayout()
     }
 
     private func openCard() {
@@ -511,7 +555,11 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
                   current.isToggle, let next = current.toggledChoice else { return }
             self.commit(self.catalog.picking(next.id, for: group.setting, in: self.selection))
         }
-        popup.configure(title: catalog.title(for: selection), groups: catalog.cardGroups(for: selection), menu: menu(for:))
+        popup.card.onOpenSetting = { [weak self, weak popup] group, row in
+            guard let self, let popup else { return }
+            self.openChoices(for: group, from: row, over: popup)
+        }
+        popup.configure(title: catalog.title(for: selection), groups: catalog.cardGroups(for: selection))
         popup.modalPresentationStyle = .popover
         if let popover = popup.popoverPresentationController {
             popover.sourceView = list
@@ -536,10 +584,14 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
         guard configTarget == settingTarget, !cardGroups.isEmpty else {
             configPopup = nil
             configTarget = nil
+            if choicePopup?.presentingViewController === popup {
+                choicePopup = nil
+                choiceTarget = nil
+            }
             popup.dismiss(animated: true)
             return
         }
-        popup.configure(title: catalog.title(for: selection), groups: cardGroups, menu: menu(for:))
+        popup.configure(title: catalog.title(for: selection), groups: cardGroups)
     }
 
     private func scroll(to mode: ScrollMode) {
@@ -608,7 +660,7 @@ final class ModelRowCell: UICollectionViewListCell {
         background.backgroundColor = picked ? Palette.cardSelected : state.isHighlighted ? Palette.controlFill : .clear
         background.strokeColor = picked ? Palette.cardSelectedRing : .clear
         background.strokeWidth = picked ? 1 : 0
-        background.cornerRadius = ModelPickerMetrics.cornerRadius
+        background.cornerRadius = ModelPickerMetrics.rowCornerRadius
         background.backgroundInsets = NSDirectionalEdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6)
         backgroundConfiguration = background
     }
@@ -678,15 +730,16 @@ final class ModelRowCell: UICollectionViewListCell {
     }
 }
 
-/// A full-width picked-model setting that opens its native glass menu.
+/// A full-width picked-model setting that opens an independent glass popover.
 final class ModelSettingRow: UIButton {
+    var onOpen: (() -> Void)?
     private let name = UILabel()
     private let value = UILabel()
     private let chevron = UIImageView(image: UIImage(systemName: "chevron.up.chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)))
 
     override init(frame: CGRect) {
         var configuration = UIButton.Configuration.plain()
-        configuration.background.cornerRadius = 12
+        configuration.background.cornerRadius = ModelPickerMetrics.rowCornerRadius
         configuration.background.backgroundInsets = NSDirectionalEdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6)
         super.init(frame: frame)
         self.configuration = configuration
@@ -695,7 +748,7 @@ final class ModelSettingRow: UIButton {
             update?.background.backgroundColor = button.isHighlighted ? Palette.controlFill : .clear
             button.configuration = update
         }
-        showsMenuAsPrimaryAction = true
+        addAction(UIAction { [weak self] _ in self?.onOpen?() }, for: .touchUpInside)
         name.font = Fonts.ui(.sansMedium, TypeScale.size(15))
         name.textColor = Palette.text
         value.font = Fonts.ui(.sans, TypeScale.size(15))
@@ -711,10 +764,9 @@ final class ModelSettingRow: UIButton {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(_ group: ModelCatalog.SettingGroup, menu: UIMenu) {
+    func configure(_ group: ModelCatalog.SettingGroup) {
         name.text = group.label
         value.text = group.selectedChoice?.label
-        self.menu = menu
         accessibilityLabel = group.label
         accessibilityValue = group.selectedChoice?.label
         switch group.setting {
@@ -724,11 +776,8 @@ final class ModelSettingRow: UIButton {
         setNeedsLayout()
     }
 
-    /// The menu opens from the value on the trailing side, not the row's
-    /// leading edge.
-    override func menuAttachmentPoint(for configuration: UIContextMenuConfiguration) -> CGPoint {
-        CGPoint(x: chevron.frame.maxX, y: super.menuAttachmentPoint(for: configuration).y)
-    }
+    /// Anchor the popover to the value instead of the entire drawer surface.
+    var choiceAnchor: CGRect { value.frame.union(chevron.frame) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -741,37 +790,8 @@ final class ModelSettingRow: UIButton {
     }
 }
 
-/// A native glass popover even in compact width. It owns dismissal separately
-/// from the model drawer and scrolls if the device cannot fit all settings.
-final class ModelConfigViewController: UIViewController, UIPopoverPresentationControllerDelegate {
-    let card = ModelConfigCard()
-    private let scroll = UIScrollView()
-    private var contentHeight: CGFloat = 0
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .clear
-        view.accessibilityIdentifier = "model-config-card"
-        scroll.contentInsetAdjustmentBehavior = .never
-        scroll.addSubview(card)
-        view.addSubview(scroll)
-    }
-
-    func configure(title: String, groups: [ModelCatalog.SettingGroup], menu: (ModelCatalog.SettingGroup) -> UIMenu) {
-        card.configure(title: title, groups: groups, menu: menu)
-        let line = 1 / max(1, traitCollection.displayScale)
-        contentHeight = ModelPickerMetrics.cardHeight(groups.count, line: line)
-        preferredContentSize = CGSize(width: 304, height: contentHeight)
-        viewIfLoaded?.setNeedsLayout()
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        scroll.frame = view.bounds.inset(by: view.safeAreaInsets)
-        card.frame = CGRect(x: 0, y: 0, width: scroll.bounds.width, height: contentHeight)
-        scroll.contentSize = card.bounds.size
-    }
-
+/// Keep each native popover independent of its parent, even in compact width.
+class ModelPopoverViewController: UIViewController, UIPopoverPresentationControllerDelegate {
     func adaptivePresentationStyle(for controller: UIPresentationController, traitCollection: UITraitCollection) -> UIModalPresentationStyle {
         .none
     }
@@ -788,10 +808,117 @@ final class ModelConfigViewController: UIViewController, UIPopoverPresentationCo
     }
 }
 
-/// Fusion's title, setting rows with native glass menus, and switches.
+/// Scrollable native choices, presented over the drawer or Fusion popup. The
+/// table provides selection/accessibility without a parent-glass menu morph.
+final class ModelChoiceViewController: ModelPopoverViewController, UITableViewDataSource, UITableViewDelegate {
+    var onPick: ((String) -> Void)?
+    var setting: ModelCatalog.Setting { group.setting }
+    private var group: ModelCatalog.SettingGroup
+    private let table = UITableView(frame: .zero, style: .plain)
+
+    init(group: ModelCatalog.SettingGroup) {
+        self.group = group
+        super.init(nibName: nil, bundle: nil)
+        update(group: group)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        view.accessibilityIdentifier = "model-choice-picker"
+        table.backgroundColor = .clear
+        table.contentInsetAdjustmentBehavior = .never
+        table.rowHeight = ModelPickerMetrics.settingRow
+        table.sectionHeaderTopPadding = 0
+        table.dataSource = self
+        table.delegate = self
+        table.register(UITableViewCell.self, forCellReuseIdentifier: "choice")
+        view.addSubview(table)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        table.frame = view.bounds.inset(by: view.safeAreaInsets)
+    }
+
+    func update(group: ModelCatalog.SettingGroup) {
+        self.group = group
+        preferredContentSize = CGSize(width: 304, height: ModelPickerMetrics.settingRow * CGFloat(group.choices.count + 1))
+        if isViewLoaded { table.reloadData() }
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { group.choices.count }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? { group.label }
+
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { ModelPickerMetrics.settingRow }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "choice", for: indexPath)
+        let choice = group.choices[indexPath.row]
+        var content = UIListContentConfiguration.valueCell()
+        content.text = choice.label
+        content.textProperties.font = Fonts.ui(.sans, TypeScale.size(15))
+        content.textProperties.color = Palette.text
+        content.secondaryText = choice.isDefault ? "Default" : nil
+        content.secondaryTextProperties.font = Fonts.ui(.sans, TypeScale.size(13))
+        content.secondaryTextProperties.color = Palette.secondary
+        cell.contentConfiguration = content
+        cell.backgroundColor = .clear
+        cell.tintColor = Palette.accent
+        cell.accessoryType = choice.id == group.selected ? .checkmark : .none
+        cell.accessibilityLabel = choice.label
+        cell.accessibilityIdentifier = "model-choice-\(choice.id)"
+        cell.accessibilityValue = choice.isDefault ? "Default" : nil
+        cell.accessibilityTraits = choice.id == group.selected ? [.button, .selected] : .button
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard group.choices.indices.contains(indexPath.row) else { return }
+        tableView.deselectRow(at: indexPath, animated: true)
+        onPick?(group.choices[indexPath.row].id)
+    }
+}
+
+final class ModelConfigViewController: ModelPopoverViewController {
+    let card = ModelConfigCard()
+    private let scroll = UIScrollView()
+    private var contentHeight: CGFloat = 0
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        view.accessibilityIdentifier = "model-config-card"
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.addSubview(card)
+        view.addSubview(scroll)
+    }
+
+    func configure(title: String, groups: [ModelCatalog.SettingGroup]) {
+        card.configure(title: title, groups: groups)
+        let line = 1 / max(1, traitCollection.displayScale)
+        contentHeight = ModelPickerMetrics.cardHeight(groups.count, line: line)
+        preferredContentSize = CGSize(width: 304, height: contentHeight)
+        viewIfLoaded?.setNeedsLayout()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        scroll.frame = view.bounds.inset(by: view.safeAreaInsets)
+        card.frame = CGRect(x: 0, y: 0, width: scroll.bounds.width, height: contentHeight)
+        scroll.contentSize = card.bounds.size
+    }
+
+}
+
+/// Fusion's title, setting rows with independent glass popovers, and switches.
 /// The title is a label; this popup has no navigation or back button.
 final class ModelConfigCard: UIView {
     var onToggle: ((ModelCatalog.SettingGroup) -> Void)?
+    var onOpenSetting: ((ModelCatalog.SettingGroup, ModelSettingRow) -> Void)?
     let header = UILabel()
     private let rule = UIView()
     private var settingRows: [ModelSettingRow] = []
@@ -811,7 +938,7 @@ final class ModelConfigCard: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(title: String, groups: [ModelCatalog.SettingGroup], menu: (ModelCatalog.SettingGroup) -> UIMenu) {
+    func configure(title: String, groups: [ModelCatalog.SettingGroup]) {
         header.text = title
         let pickers = groups.filter { !$0.isToggle }
         let switches = groups.filter(\.isToggle)
@@ -824,7 +951,12 @@ final class ModelConfigCard: UIView {
             settingRows.removeLast().removeFromSuperview()
         }
         for (index, group) in pickers.enumerated() {
-            settingRows[index].configure(group, menu: menu(group))
+            let row = settingRows[index]
+            row.configure(group)
+            row.onOpen = { [weak self, weak row] in
+                guard let self, let row else { return }
+                self.onOpenSetting?(group, row)
+            }
         }
         while toggleRows.count < switches.count {
             let row = ModelToggleRow()
