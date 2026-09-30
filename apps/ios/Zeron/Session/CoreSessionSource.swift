@@ -12,6 +12,10 @@ final class CoreSessionSource: SessionSource {
     private var token: AnyObject?
     private var appToken: AnyObject?
     private var hostDevice = ""
+    private var hostCatalog: ModelCatalog?
+    private var catalogRequest = UUID()
+    private var shownModelSelection: ModelSelection?
+    private var modelFailure: String?
 
     init(app: AppModel, client: CoreClient, handle: SessionHandle, chatId: String) {
         self.app = app
@@ -36,10 +40,41 @@ final class CoreSessionSource: SessionSource {
         handle.setViewAttached(attached: true)
     }
 
+    private func catalog(for harness: String) -> ModelCatalog {
+        if let hostCatalog, hostCatalog.providers.first?.id == harness { return hostCatalog }
+        let fallback = ModelCatalog(providers: [
+            .init(
+                id: harness,
+                label: harnessLabel(harness: harness),
+                reasoningLevels: fallbackHarnesses().first { $0.id == harness }?.reasoningLevels ?? [],
+                models: fallbackModels(harness: harness)
+            ),
+        ])
+        hostCatalog = fallback
+        return fallback
+    }
+
+    var modelCatalog: ModelCatalog {
+        catalog(for: modelSelection?.harness ?? "claude-code")
+    }
+
+    var modelSelection: ModelSelection? {
+        if let config = client.sessionConfig(chatId: chatId) {
+            return ModelSelection(harness: config.harness, model: config.model, effort: config.reasoning, options: config.modelOptions)
+        }
+        guard let row = app?.row(chatId), let harness = row.harness else { return nil }
+        return ModelSelection(harness: harness, model: row.model, effort: row.reasoning)
+    }
+
     private func refresh() {
         let c = handle.composer()
         let row = app?.row(chatId)
-        hostDevice = c.host.deviceId
+        if hostDevice != c.host.deviceId {
+            hostDevice = c.host.deviceId
+            hostCatalog = nil
+            catalogRequest = UUID()
+        }
+        let selection = modelSelection
         var next = SessionChrome()
         next.title = c.title
         let project = row?.project?.name ?? "No project"
@@ -48,11 +83,15 @@ final class CoreSessionSource: SessionSource {
         next.canSteer = c.host.capabilities.midTurnSteering ?? false
         next.placeholder = "Message \(row?.harnessLabel ?? "the agent")"
         var chips: [ComposerChip] = []
-        if let model = row?.modelLabel ?? row?.harnessLabel {
-            chips.append(ComposerChip(id: "model", title: model, symbol: nil, icon: BrandMarks.image(for: row?.harness ?? "claude-code", side: 13)))
-        }
-        if let r = row?.reasoning, !r.isEmpty {
-            chips.append(ComposerChip(id: "effort", title: reasoningLabel(level: r), symbol: "gauge.with.dots.needle.67percent"))
+        if let pick = selection {
+            let models = catalog(for: pick.harness)
+            chips.append(ComposerChip(
+                id: "model",
+                title: models.title(for: pick),
+                symbol: nil,
+                icon: BrandMarks.image(for: pick.harness, side: 13),
+                detail: models.chipDetail(for: pick)
+            ))
         }
         if let pr = row?.pullRequest {
             let state: SessionRowVM.PR = switch pr.state { case .open: .open; case .merged: .merged; case .closed: .closed }
@@ -72,7 +111,9 @@ final class CoreSessionSource: SessionSource {
             }
         }
         next.chips = chips
-        if let sendFailure {
+        if let modelFailure {
+            next.banner = .failed(modelFailure)
+        } else if let sendFailure {
             next.banner = .failed(sendFailure)
         } else if c.sendState == .failed {
             next.banner = .notDelivered
@@ -99,8 +140,9 @@ final class CoreSessionSource: SessionSource {
             return SessionChrome.QueuedItem(id: q.id, text: q.visibleText, thumbnail: nil, gate: gate)
         }
         next.error = c.queueError
-        if next != chrome {
+        if next != chrome || selection != shownModelSelection {
             chrome = next
+            shownModelSelection = selection
             onChange?()
         }
     }
@@ -195,50 +237,60 @@ final class CoreSessionSource: SessionSource {
         try? handle.retryDelivery()
     }
 
-    func chipMenu(_ id: String) -> UIMenu? {
-        guard let row = app?.row(chatId) else { return nil }
-        let harness = row.harness ?? "claude-code"
-        switch id {
-        case "model":
-            return UIMenu(title: "Model", children: [UIDeferredMenuElement { [weak self] done in
-                guard let self else { return done([]) }
-                Task { @MainActor in
-                    let models = (try? await self.client.listModels(deviceId: self.hostDevice, harness: harness)) ?? fallbackModels(harness: harness)
-                    done(models.map { m in
-                        UIAction(title: m.label, subtitle: m.description, state: m.id == row.model ? .on : .off) { [weak self] _ in
-                            self?.setConfig { $0.model = m.id }
-                        }
-                    })
-                }
-            }])
-        case "effort":
-            return UIMenu(title: "Reasoning effort", children: [UIDeferredMenuElement { [weak self] done in
-                guard let self else { return done([]) }
-                Task { @MainActor in
-                    let models = (try? await self.client.listModels(deviceId: self.hostDevice, harness: harness)) ?? fallbackModels(harness: harness)
-                    let levels = models.first { $0.id == row.model }?.reasoningLevels ?? models.first?.reasoningLevels ?? []
-                    done(levels.map { l in
-                        UIAction(title: reasoningLabel(level: l), state: l == row.reasoning ? .on : .off) { [weak self] _ in
-                            self?.setConfig { $0.reasoning = l }
-                        }
-                    })
-                }
-            }])
-        case "pr":
-            guard let url = row.pullRequest.flatMap({ URL(string: $0.url) }) else { return nil }
-            return UIMenu(title: row.pullRequest?.title ?? "", children: [
-                UIAction(title: "Open Pull Request", image: UIImage(systemName: "safari")) { _ in UIApplication.shared.open(url) },
-                UIAction(title: "Copy Link", image: UIImage(systemName: "link")) { _ in UIPasteboard.general.url = url },
+    func refreshModels(_ done: @escaping (ModelCatalog) -> Void) {
+        guard let harness = modelSelection?.harness else { return }
+        let client = self.client
+        let device = hostDevice
+        let request = UUID()
+        catalogRequest = request
+        Task { @MainActor [weak self] in
+            async let harnesses = client.listHarnesses(deviceId: device)
+            async let models = client.listModels(deviceId: device, harness: harness)
+            let (listedHarnesses, listedModels) = await (harnesses, models)
+            guard let self, self.catalogRequest == request, self.hostDevice == device,
+                  self.modelSelection?.harness == harness else { return }
+            let info = listedHarnesses.first { $0.id == harness }
+            let fresh = ModelCatalog(providers: [
+                .init(
+                    id: harness,
+                    label: info?.label ?? harnessLabel(harness: harness),
+                    reasoningLevels: info?.reasoningLevels ?? [],
+                    models: listedModels
+                ),
             ])
-        default:
-            return nil
+            self.hostCatalog = fresh
+            self.refresh()
+            done(fresh)
         }
     }
 
-    private func setConfig(_ change: (inout ChatConfig) -> Void) {
-        var config = client.sessionConfig(chatId: chatId) ?? ChatConfig(harness: app?.row(chatId)?.harness ?? "claude-code", model: nil, reasoning: nil, modelOptions: [:], sandbox: .workspaceWrite)
-        change(&config)
-        try? client.setSessionConfig(chatId: chatId, config: config)
+    func setModelSelection(_ selection: ModelSelection) {
+        // A live chat keeps the engine it started with.
+        guard selection.harness == modelSelection?.harness else { return }
+        let run = catalog(for: selection.harness).resolved(selection, keepingUnlistedOptions: true)
+        var config = client.sessionConfig(chatId: chatId) ?? ChatConfig(
+            harness: run.harness, model: nil, reasoning: nil, modelOptions: [:], sandbox: .workspaceWrite
+        )
+        config.model = run.model
+        config.reasoning = run.effort
+        config.modelOptions = run.options
+        do {
+            try client.setSessionConfig(chatId: chatId, config: config)
+            modelFailure = nil
+        } catch {
+            modelFailure = "Couldn't update model: \(error)"
+        }
+        refresh()
+    }
+
+    func chipMenu(_ id: String) -> UIMenu? {
+        guard id == "pr", let row = app?.row(chatId),
+              let url = row.pullRequest.flatMap({ URL(string: $0.url) })
+        else { return nil }
+        return UIMenu(title: row.pullRequest?.title ?? "", children: [
+            UIAction(title: "Open Pull Request", image: UIImage(systemName: "safari")) { _ in UIApplication.shared.open(url) },
+            UIAction(title: "Copy Link", image: UIImage(systemName: "link")) { _ in UIPasteboard.general.url = url },
+        ])
     }
 
     func searchFiles(_ query: String) async -> [FileMatch] {

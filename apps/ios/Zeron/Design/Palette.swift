@@ -21,6 +21,10 @@ enum Palette {
     static let accent = dynamic(0x5B43E8, 0x8B7CF6)
     /// Translucent control fill that reads on glass in both modes.
     static let controlFill = dynamic(0x27272C, 0xE8E8EA, alpha: 0.075)
+    /// Model picker selection wash, inset ring, and pane separators.
+    static let cardSelected = dual(UIColor(white: 0.10, alpha: 0.06), UIColor(white: 0.92, alpha: 0.11))
+    static let cardSelectedRing = dual(UIColor(white: 0, alpha: 0.07), UIColor(white: 1, alpha: 0.09))
+    static let cardRule = dual(UIColor(white: 0, alpha: 0.108), UIColor(white: 1, alpha: 0.08))
     static let accentSoft = dynamic(0x5B43E8, 0x8B7CF6, alpha: 0.12)
     static let danger = dynamic(0xDC2626, 0xF87171)
     static let success = dynamic(0x15803D, 0x34D399)

@@ -10,6 +10,7 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
     private lazy var engine = TranscriptView(text: TextEngine.shared, listener: relay)
     private lazy var list = TranscriptListView(engine: engine)
     private let composer = ComposerBar()
+    private weak var modelPicker: ModelPickerViewController?
     private let questions = QuestionPanel()
     private let queue = QueuePanel()
     private let pill = StatusPill()
@@ -81,6 +82,10 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
             return .sent
         }
         composer.onStop = { [weak self] in self?.source.stop() }
+        composer.onChipTap = { [weak self] id, chip in
+            guard id == "model" else { return }
+            self?.presentModelPicker(from: chip)
+        }
         composer.text = Drafts.load(chatId)
         composer.mentionSearch = { [weak self] q in await self?.source.searchFiles(q) ?? [] }
         composer.onHeightChange = { [weak self] in self?.view.setNeedsLayout() }
@@ -323,6 +328,21 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
         bottom.alpha = 1
     }
 
+    private func presentModelPicker(from chip: UIView) {
+        guard presentedViewController == nil, let selection = source.modelSelection else { return }
+        let picker = ModelPickerViewController(catalog: source.modelCatalog, selection: selection, locked: true)
+        picker.onChange = { [weak self, weak picker] selection in
+            guard let self else { return }
+            self.source.setModelSelection(selection)
+            // The core write is synchronous. Reconcile even a repeated
+            // failure, which may leave the source's visible state unchanged.
+            if let actual = self.source.modelSelection { picker?.update(selection: actual) }
+        }
+        modelPicker = picker
+        picker.present(anchoredTo: chip, holding: composer, over: self)
+        source.refreshModels { [weak picker] catalog in picker?.update(catalog: catalog) }
+    }
+
     @objc private func dismissComposer() {
         if composer.textView.isFirstResponder { composer.resignFirstResponder() }
     }
@@ -458,6 +478,7 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
 
     private func render(animated: Bool) {
         let c = source.chrome
+        if let selection = source.modelSelection { modelPicker?.update(selection: selection) }
         let old = shown
         shown = c
         titleView.set(title: c.title, subtitle: c.subtitle)
@@ -466,7 +487,7 @@ final class SessionViewController: UIViewController, UIGestureRecognizerDelegate
         composer.canSteer = c.canSteer
         composer.placeholder = c.placeholder
         composer.chips = c.chips
-        composer.chipMenus = Dictionary(uniqueKeysWithValues: c.chips.map { chip in
+        composer.chipMenus = Dictionary(uniqueKeysWithValues: c.chips.filter { $0.id != "model" }.map { chip in
             (chip.id, { [weak self] in self?.source.chipMenu(chip.id) })
         })
         let changes = {
