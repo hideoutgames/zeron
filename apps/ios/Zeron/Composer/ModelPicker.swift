@@ -25,7 +25,7 @@ private enum ModelPickerMetrics {
 /// list and settings tray from ZRemote's iOS picker. Selections keep the drawer
 /// open. A model configured in place (Devin Fusion) opens a separate glass
 /// popover over the drawer, without replacing the list or adding a back button.
-final class ModelPickerViewController: UIViewController, UIAdaptivePresentationControllerDelegate, UICollectionViewDataSource, UICollectionViewDelegate, UITextFieldDelegate {
+final class ModelPickerViewController: UIViewController, UISheetPresentationControllerDelegate, UICollectionViewDataSource, UICollectionViewDelegate, UITextFieldDelegate {
     private enum ScrollMode { case keep, top, picked }
 
     private struct TabButton {
