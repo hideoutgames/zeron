@@ -168,6 +168,18 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
         layoutListPage()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // The sheet's container can finish moving without changing our
+        // bounds. Recompute window-relative clearance at its final position.
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
+    func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
+        view.setNeedsLayout()
+    }
+
     private func layoutListPage() {
         let bounds = listPage.bounds
         // A floating sheet has its own safe-area padding, which would leave

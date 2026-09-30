@@ -20,6 +20,40 @@ final class ModelPickerPresentationTests: XCTestCase {
     }
 
     @MainActor
+    private func waitUntilPresented(_ controller: UIViewController, file: StaticString = #filePath, line: UInt = #line) throws {
+        let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controller.viewIfLoaded?.window != nil && !controller.isBeingPresented && controller.transitionCoordinator == nil
+        }, object: controller)
+        // The first Liquid Glass presentation can compile simulator shaders.
+        // Wait for the entire transition before measuring or opening a child.
+        let result = XCTWaiter.wait(for: [shown], timeout: 15)
+        _ = try XCTUnwrap(result == .completed ? controller : nil, "native presentation did not finish", file: file, line: line)
+        controller.view.window?.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+    }
+
+    @MainActor
+    private func close(_ host: UIViewController, window: UIWindow) {
+        var top = host
+        while let presented = top.presentedViewController { top = presented }
+        let dismiss = {
+            host.dismiss(animated: false)
+            window.isHidden = true
+        }
+        if let transition = top.transitionCoordinator,
+           transition.animate(alongsideTransition: nil, completion: { _ in dismiss() }) {
+            return
+        }
+        // A failed presentation must not make teardown start another UIKit
+        // transition before the first has finished.
+        if top.isBeingPresented || top.isBeingDismissed {
+            window.isHidden = true
+        } else {
+            dismiss()
+        }
+    }
+
+    @MainActor
     private func present(_ picker: ModelPickerViewController) throws -> (UIWindow, UIViewController, ComposerBar) {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -32,11 +66,12 @@ final class ModelPickerPresentationTests: XCTestCase {
         let chip = UIButton(frame: CGRect(x: 16, y: 100, width: 100, height: 40))
         composer.addSubview(chip)
         picker.present(anchoredTo: chip, holding: composer, over: host)
-        let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            picker.viewIfLoaded?.window != nil && !picker.isBeingPresented
-        }, object: picker)
-        wait(for: [shown], timeout: 5)
-        picker.view.layoutIfNeeded()
+        do {
+            try waitUntilPresented(picker)
+        } catch {
+            close(host, window: window)
+            throw error
+        }
         return (window, host, composer)
     }
 
@@ -46,10 +81,7 @@ final class ModelPickerPresentationTests: XCTestCase {
         let catalog = ModelCatalog(providers: [.init(id: "claude-code", label: "Claude Code", models: [model])])
         let picker = ModelPickerViewController(catalog: catalog, selection: .init(harness: "claude-code", model: "one"), locked: true)
         let (window, host, composer) = try present(picker)
-        defer {
-            host.dismiss(animated: false)
-            window.isHidden = true
-        }
+        defer { close(host, window: window) }
         XCTAssertEqual(picker.modalPresentationStyle, .pageSheet)
         XCTAssertTrue(composer.holdsCard)
         let sheet = try XCTUnwrap(picker.sheetPresentationController)
@@ -89,10 +121,7 @@ final class ModelPickerPresentationTests: XCTestCase {
         let catalog = ModelCatalog(providers: [.init(id: "codex", label: "Codex", models: [plain, oneSetting, threeSettings, manySettings])])
         let picker = ModelPickerViewController(catalog: catalog, selection: .init(harness: "codex", model: plain.id), locked: true)
         let (window, host, _) = try present(picker)
-        defer {
-            host.dismiss(animated: false)
-            window.isHidden = true
-        }
+        defer { close(host, window: window) }
         let list = try XCTUnwrap(descendants(of: picker.view).compactMap { $0 as? UICollectionView }.first)
         let originalFrame = picker.view.convert(picker.view.bounds, to: window)
         let originalSize = picker.preferredContentSize
@@ -187,20 +216,14 @@ final class ModelPickerPresentationTests: XCTestCase {
         var changes: [ModelSelection] = []
         picker.onChange = { changes.append($0) }
         let (window, host, composer) = try present(picker)
-        defer {
-            host.dismiss(animated: false)
-            window.isHidden = true
-        }
+        defer { close(host, window: window) }
         let row = try XCTUnwrap(descendants(of: picker.view).compactMap { $0 as? ModelSettingRow }.first)
         let originalFrame = picker.view.convert(picker.view.bounds, to: window)
         let originalSize = picker.preferredContentSize
         XCTAssertNil(row.menu, "a setting presents independently of its enclosing glass drawer")
         row.sendActions(for: .touchUpInside)
         let popup = try XCTUnwrap(picker.presentedViewController as? ModelChoiceViewController)
-        let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            popup.viewIfLoaded?.window != nil && !popup.isBeingPresented
-        }, object: popup)
-        wait(for: [shown], timeout: 5)
+        try waitUntilPresented(popup)
         XCTAssertEqual(popup.modalPresentationStyle, .popover)
         let presentation = try XCTUnwrap(popup.popoverPresentationController)
         XCTAssertTrue(presentation.sourceView === row)
@@ -224,10 +247,7 @@ final class ModelPickerPresentationTests: XCTestCase {
 
         row.sendActions(for: .touchUpInside)
         let obsolete = try XCTUnwrap(picker.presentedViewController as? ModelChoiceViewController)
-        let reopened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            obsolete.viewIfLoaded?.window != nil && !obsolete.isBeingPresented
-        }, object: obsolete)
-        wait(for: [reopened], timeout: 5)
+        try waitUntilPresented(obsolete)
         let oldTable = try XCTUnwrap(descendants(of: obsolete.view).compactMap { $0 as? UITableView }.first)
         picker.update(selection: .init(harness: "devin", model: "fusion"))
         let closed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -247,17 +267,11 @@ final class ModelPickerPresentationTests: XCTestCase {
         var changes: [ModelSelection] = []
         picker.onChange = { changes.append($0) }
         let (window, host, _) = try present(picker)
-        defer {
-            host.dismiss(animated: false)
-            window.isHidden = true
-        }
+        defer { close(host, window: window) }
         let list = try XCTUnwrap(descendants(of: picker.view).compactMap { $0 as? UICollectionView }.first)
         picker.collectionView(list, didSelectItemAt: IndexPath(item: 0, section: 0))
         let popup = try XCTUnwrap(picker.presentedViewController as? ModelConfigViewController)
-        let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            popup.viewIfLoaded?.window != nil && !popup.isBeingPresented
-        }, object: popup)
-        wait(for: [shown], timeout: 5)
+        try waitUntilPresented(popup)
         XCTAssertEqual(popup.modalPresentationStyle, .popover)
         let presentation = try XCTUnwrap(popup.popoverPresentationController)
         XCTAssertEqual(popup.adaptivePresentationStyle(for: presentation, traitCollection: UITraitCollection(horizontalSizeClass: .compact)), .none)
@@ -275,10 +289,7 @@ final class ModelPickerPresentationTests: XCTestCase {
         let cardFrame = popup.view.convert(popup.view.bounds, to: window)
         lead.sendActions(for: .touchUpInside)
         let choices = try XCTUnwrap(popup.presentedViewController as? ModelChoiceViewController)
-        let choicesShown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            choices.viewIfLoaded?.window != nil && !choices.isBeingPresented
-        }, object: choices)
-        wait(for: [choicesShown], timeout: 5)
+        try waitUntilPresented(choices)
         XCTAssertEqual(choices.modalPresentationStyle, .popover)
         XCTAssertTrue(picker.presentedViewController === popup, "the choice popup sits above the Fusion card")
         XCTAssertEqual(popup.view.convert(popup.view.bounds, to: window), cardFrame)
@@ -306,25 +317,16 @@ final class ModelPickerPresentationTests: XCTestCase {
         var changes: [ModelSelection] = []
         picker.onChange = { changes.append($0) }
         let (window, host, _) = try present(picker)
-        defer {
-            host.dismiss(animated: false)
-            window.isHidden = true
-        }
+        defer { close(host, window: window) }
         let list = try XCTUnwrap(descendants(of: picker.view).compactMap { $0 as? UICollectionView }.first)
         picker.collectionView(list, didSelectItemAt: IndexPath(item: 0, section: 0))
         let popup = try XCTUnwrap(picker.presentedViewController as? ModelConfigViewController)
-        let shown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            popup.viewIfLoaded?.window != nil && !popup.isBeingPresented
-        }, object: popup)
-        wait(for: [shown], timeout: 5)
+        try waitUntilPresented(popup)
         let staleToggle = try XCTUnwrap(descendants(of: popup.view).compactMap { $0 as? UISwitch }.first)
         let lead = try XCTUnwrap(descendants(of: popup.view).compactMap { $0 as? ModelSettingRow }.first { $0.accessibilityIdentifier == "model-setting-lead" })
         lead.sendActions(for: .touchUpInside)
         let staleChoices = try XCTUnwrap(popup.presentedViewController as? ModelChoiceViewController)
-        let choicesShown = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            staleChoices.viewIfLoaded?.window != nil && !staleChoices.isBeingPresented
-        }, object: staleChoices)
-        wait(for: [choicesShown], timeout: 5)
+        try waitUntilPresented(staleChoices)
         let staleTable = try XCTUnwrap(descendants(of: staleChoices.view).compactMap { $0 as? UITableView }.first)
 
         picker.update(selection: .init(harness: "devin", model: "regular"))
