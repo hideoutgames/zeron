@@ -83,6 +83,26 @@ Zeron/
 
 ## Tests
 
+The composer's attachment button sits above the shared glass as a sibling,
+with the same layout anchors in both capsule and card modes. Keeping the menu
+source out of the glass content prevents the whole resting composer from
+morphing into the Photos / Camera / Files / Paste menu.
+
+From the repository root, run the attachment-menu regression on both an
+iPhone and an iPad simulator (the test uses landscape on iPad):
+
+```sh
+xcodebuild -project apps/ios/Zeron.xcodeproj -scheme Zeron \
+  -destination 'platform=iOS Simulator,id=<simulator-udid>' \
+  -parallel-testing-enabled NO \
+  -only-testing:ZeronUITests/SessionFlowTests/testAttachMenuOpens test
+```
+
+This covers the resting capsule, the new-session card, a focused draft, and
+repeated opening/dismissal with an unfocused draft. Inspect its
+`attach-resting-*` screenshots and the opening/closing animation: the composer
+should remain visible and stationary while the menu originates at `+`.
+
 ```sh
 # Rust
 cargo test -p zeron-text -p zeron-markdown -p zeron-client -p zeron-mobile
