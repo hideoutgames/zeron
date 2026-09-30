@@ -600,7 +600,9 @@ final class ModelPickerViewController: UIViewController, UISheetPresentationCont
                 choicePopup = nil
                 choiceTarget = nil
             }
-            popup.dismiss(animated: true)
+            // Dismiss from the card's presenter to remove the card and any
+            // choices above it. Calling on the card only closes its child.
+            popup.presentingViewController?.dismiss(animated: true)
             return
         }
         popup.configure(title: catalog.title(for: selection), groups: cardGroups)
