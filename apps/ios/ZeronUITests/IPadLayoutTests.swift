@@ -34,7 +34,7 @@ final class IPadLayoutTests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         XCTAssertTrue(detailBar.waitForExistence(timeout: 5))
 
-        for (orientation, name) in [(XCUIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
+        for (orientation, name) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
             XCUIDevice.shared.orientation = orientation
             let layout = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 let window = app.windows.firstMatch.frame
@@ -48,7 +48,7 @@ final class IPadLayoutTests: XCTestCase {
             }, object: nil)
             let result = XCTWaiter.wait(for: [layout], timeout: 5)
             snapshot(app, "ipad-header-\(name)")
-            XCTAssertEqual(result, .completed,
+            XCTAssertEqual(result, XCTWaiter.Result.completed,
                            "Sessions and search sit at the top beside the detail bar in \(name)")
         }
     }
