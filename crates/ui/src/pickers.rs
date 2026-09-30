@@ -3735,11 +3735,11 @@ impl Pickers {
                             cx.notify();
                         }))
                         .child(crate::icons::icon(icon_path).size(px(16.0)).text_color(
-                            tint.unwrap_or(if is_viewed {
-                                theme.text
+                            if is_viewed {
+                                tint.unwrap_or(theme.text)
                             } else {
                                 theme.text_muted
-                            }),
+                            },
                         ))
                         .when(is_viewed, |el| el.child(tab_indicator(theme.accent))),
                 );
@@ -3956,7 +3956,7 @@ impl Pickers {
             .id(("model-row", ix))
             .px(px(8.0))
             .py(px(if compact { 5.0 } else { 6.0 }))
-            .rounded(px(popover::MENU_ITEM_RADIUS))
+            .rounded(px(popover::CARD_RADIUS))
             .flex()
             .flex_row()
             .items_center()
