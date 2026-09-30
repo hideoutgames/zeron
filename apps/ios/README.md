@@ -50,6 +50,53 @@ Zeron/
   Debug/       Transcript lab + hitch meter
 ```
 
+### Model picker
+
+The composer model chip opens a native Swift/UIKit sheet drawer in both new
+and existing sessions. It retains the provider tabs, scoped search, favorites,
+model rows and pinned settings tray from the
+[ZRemote iOS picker](https://github.com/hideoutgames/zremote/tree/ebf047056a307965c2a329eb7dce2bac9ed583dd/apps/ios/Zeron/Composer).
+The drawer offers a content-sized detent and a large detent. Drag its grabber
+down, press Escape, or use the accessibility escape gesture to close it.
+The list and settings tray remain scrollable when space is limited or search
+opens the keyboard.
+
+Provider tabs browse without changing the selection. Inactive logos, including
+Claude, use the same muted template tint; the selected tab retains its brand
+color. Selected model rows share the drawer's corner-radius setting. Favorites
+persist on this device; demo launches keep them in memory.
+
+Effort and model options live in the drawer's settings tray. Devin Fusion opens
+a separate native Liquid Glass popup containing Lead, Effort, Sidekick and its
+advertised switches. It has no back button; dismissing the popup returns to
+the still-open drawer. The popup stays a popover on both iPhone and iPad.
+
+Existing sessions keep their current provider and sandbox settings. New-session
+drafts retain model options, including when reopened; drafts saved before model
+options were introduced still decode. Catalog refreshes retain the latest pick
+and discard responses for an obsolete host or request. The Swift catalog uses
+the existing core model metadata and sends validated choices through `ChatConfig`.
+
+Picker coverage lives in `ZeronTests/ModelCatalogTests.swift`,
+`ZeronTests/ModelPickerPresentationTests.swift`, and the model-picker cases in
+`ZeronUITests/SessionFlowTests.swift`. Run those targeted cases on Xcode 26+;
+Swift syntax checks on other platforms do not replace a native build or
+simulator run.
+
+From `apps/ios`, the targeted picker checks are:
+
+```sh
+xcodebuild -project Zeron.xcodeproj -scheme Zeron \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -only-testing:ZeronTests/ModelCatalogTests \
+  -only-testing:ZeronTests/ModelPickerPresentationTests \
+  -only-testing:ZeronUITests/SessionFlowTests/testModelPickerInNewSession \
+  -only-testing:ZeronUITests/SessionFlowTests/testModelPickerInSession \
+  -only-testing:ZeronUITests/SessionFlowTests/testEffortPickerInSession \
+  -only-testing:ZeronUITests/SessionFlowTests/testServiceTierInSession \
+  -only-testing:ZeronUITests/SessionFlowTests/testNewSessionRemembersDraftWhenClosed test
+```
+
 ### Transcript pipeline
 
 1. `zeron-client` applies session-doc updates incrementally (O(changed
