@@ -509,7 +509,7 @@ final class AppModel {
                 reasoningLevels: pair.element.reasoningLevels,
                 models: models[pair.offset]
             )
-        })
+        }).includingDemoModels(enabled: client.isDemo())
     }
 
     func listFolders(deviceId: String, path: String?) async -> FolderListing? {

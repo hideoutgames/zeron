@@ -26,6 +26,15 @@ final class SessionFlowTests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
+    private func chooseModelOption(_ app: XCUIApplication, _ id: String) {
+        let popup = app.otherElements["model-choice-picker"]
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        let choice = app.descendants(matching: .any)["model-choice-\(id)"].firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        choice.tap()
+        XCTAssertTrue(popup.waitForNonExistence(timeout: 5), "choosing a value closes only the option popup")
+    }
+
     private func dismissModelDrawer(_ app: XCUIApplication) {
         let drawer = app.otherElements["model-picker"]
         XCTAssertTrue(drawer.waitForExistence(timeout: 5))
@@ -325,10 +334,9 @@ final class SessionFlowTests: XCTestCase {
         let effort = app.buttons["model-setting-effort"]
         XCTAssertTrue(effort.waitForExistence(timeout: 5))
         effort.tap()
-        let low = app.buttons["Low"].firstMatch
-        XCTAssertTrue(low.waitForExistence(timeout: 5))
-        snapshot(app, "effort-menu")
-        low.tap()
+        XCTAssertTrue(app.otherElements["model-choice-picker"].waitForExistence(timeout: 5))
+        snapshot(app, "effort-popup")
+        chooseModelOption(app, "low")
         XCTAssertTrue(waitForValue(effort, "Low"))
         dismissModelDrawer(app)
         XCTAssertTrue(chip.label.contains("Low"))
@@ -363,7 +371,7 @@ final class SessionFlowTests: XCTestCase {
         let effort = app.buttons["model-setting-effort"]
         XCTAssertTrue(effort.waitForExistence(timeout: 5))
         effort.tap()
-        app.buttons["Low"].firstMatch.tap()
+        chooseModelOption(app, "low")
         XCTAssertTrue(waitForValue(effort, "Low"))
         dismissModelDrawer(app)
         XCTAssertTrue(model.label.contains("Low"))
@@ -412,7 +420,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(tier.waitForExistence(timeout: 5))
         XCTAssertTrue(astra.isSelected)
         tier.tap()
-        app.buttons["Fast"].firstMatch.tap()
+        chooseModelOption(app, "fast")
         XCTAssertTrue(waitForValue(tier, "Fast"))
         let search = app.textFields["model-search"]
         search.tap()
@@ -431,6 +439,75 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(sonnet.waitForExistence(timeout: 5))
         XCTAssertTrue(sonnet.isSelected, "the pick survives closing and reopening the drawer")
         dismissModelDrawer(app)
+    }
+
+    /// Demo mode offers Fusion without an installed Devin host, and its
+    /// choices continue through the normal new-session/configuration path.
+    func testDemoFusionOptionsContinueIntoCreatedSession() {
+        let app = launch(["-route", "new"])
+        let model = app.buttons["composer-chip-model"]
+        XCTAssertTrue(model.waitForExistence(timeout: 10))
+        model.tap()
+        let devin = app.buttons["model-tab-devin"]
+        XCTAssertTrue(devin.waitForExistence(timeout: 5))
+        devin.tap()
+        let fusion = app.cells["model-row-fusion"]
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        fusion.tap()
+
+        let popup = app.otherElements["model-config-card"]
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        let lead = app.buttons["model-setting-lead"]
+        lead.tap()
+        chooseModelOption(app, "gpt-6-sol")
+        XCTAssertTrue(waitForValue(lead, "GPT-6 Sol"))
+        let effort = app.buttons["model-setting-effort"]
+        effort.tap()
+        chooseModelOption(app, "low")
+        XCTAssertTrue(waitForValue(effort, "Low"))
+        let sidekick = app.buttons["model-setting-sidekick"]
+        sidekick.tap()
+        chooseModelOption(app, "swe-2-high")
+        XCTAssertTrue(waitForValue(sidekick, "SWE-2 High"))
+        let fast = app.switches["model-toggle-speed"]
+        fast.tap()
+        XCTAssertTrue(waitForValue(fast, "1"))
+        snapshot(app, "demo-fusion-options")
+
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.15)).tap()
+        XCTAssertTrue(popup.waitForNonExistence(timeout: 5))
+        dismissModelDrawer(app)
+        let input = app.textViews["composer-input"]
+        input.tap()
+        input.typeText("Check the demo Fusion settings")
+        app.buttons["composer-send"].tap()
+        XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 10))
+
+        input.tap()
+        XCTAssertTrue(model.waitForExistence(timeout: 5))
+        XCTAssertTrue(model.label.contains("Fusion"))
+        model.tap()
+        XCTAssertTrue(devin.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["model-tab-codex"].exists, "the created session retains its provider")
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        XCTAssertTrue(fusion.isSelected)
+        fusion.tap()
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue(lead, "GPT-6 Sol"), "Lead survives creating the demo session")
+        XCTAssertTrue(waitForValue(effort, "Low"))
+        XCTAssertTrue(waitForValue(sidekick, "SWE-2 High"))
+        XCTAssertTrue(waitForValue(fast, "1"))
+
+        // Reopening uses the existing session's refreshed catalog as well.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.15)).tap()
+        XCTAssertTrue(popup.waitForNonExistence(timeout: 5))
+        dismissModelDrawer(app)
+        model.tap()
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        fusion.tap()
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue(lead, "GPT-6 Sol"))
+        XCTAssertEqual(app.state, .runningForeground)
     }
 
     /// "+" opens without focusing or moving the resting composer, and stays
@@ -524,9 +601,15 @@ final class SessionFlowTests: XCTestCase {
         chip.tap()
         let tier = app.buttons["model-setting-serviceTier"]
         XCTAssertTrue(tier.waitForExistence(timeout: 5))
+        let drawer = app.otherElements["model-picker"]
+        let drawerFrame = drawer.frame
         tier.tap()
-        app.buttons["Fast"].firstMatch.tap()
+        XCTAssertTrue(app.otherElements["model-choice-picker"].waitForExistence(timeout: 5))
+        snapshot(app, "service-tier-popup")
+        chooseModelOption(app, "fast")
         XCTAssertTrue(waitForValue(tier, "Fast"))
+        XCTAssertEqual(drawer.frame.minY, drawerFrame.minY, accuracy: 1)
+        XCTAssertEqual(drawer.frame.height, drawerFrame.height, accuracy: 1)
         dismissModelDrawer(app)
         XCTAssertTrue(chip.label.contains("Fast"))
     }

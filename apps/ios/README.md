@@ -62,20 +62,34 @@ The composer model chip opens a native Swift/UIKit sheet drawer in both new
 and existing sessions. It retains the provider tabs, scoped search, favorites,
 model rows and pinned settings tray from the
 [ZRemote iOS picker](https://github.com/hideoutgames/zremote/tree/ebf047056a307965c2a329eb7dce2bac9ed583dd/apps/ios/Zeron/Composer).
-The drawer offers a content-sized detent and a large detent. Drag its grabber
-down, press Escape, or use the accessibility escape gesture to close it.
-The list and settings tray remain scrollable when space is limited or search
-opens the keyboard.
+The drawer offers a fixed-height detent and a large detent. Changing models or
+refreshing their settings keeps the drawer in place: the model list gives space
+to the settings tray and takes it back when fewer settings are available.
+The final option keeps the tray's small, symmetric inset and any clearance
+actually needed for the device's home indicator; the sheet's own bottom inset
+is not added again. Both panes remain scrollable when space is limited or
+search opens the keyboard. Drag the grabber down, press Escape, or use the
+accessibility escape gesture to close the drawer.
 
 Provider tabs browse without changing the selection. Inactive logos, including
 Claude, use the same muted template tint; the selected tab retains its brand
-color. Selected model rows share the drawer's corner-radius setting. Favorites
-persist on this device; demo launches keep them in memory.
+color. Selected model rows use tighter rounded corners inside the drawer,
+without capsule-shaped ends. Favorites persist on this device; demo launches
+keep them in memory.
 
-Effort and model options live in the drawer's settings tray. Devin Fusion opens
-a separate native Liquid Glass popup containing Lead, Effort, Sidekick and its
-advertised switches. It has no back button; dismissing the popup returns to
-the still-open drawer. The popup stays a popover on both iPhone and iPad.
+Effort and model options live in the drawer's settings tray. Their choices open
+in separate native popovers above the drawer, which keeps its size and position.
+Devin Fusion opens a separate native Liquid Glass popup containing Lead,
+Effort, Sidekick and its advertised switches. It has no back button;
+dismissing the popup returns to the still-open drawer. Option choices and the
+Fusion popup stay popovers on both iPhone and iPad.
+
+The `-demo` workspace includes a dummy Devin provider with Fusion so its Lead,
+Effort, Sidekick and Fast Mode controls can be exercised offline. The fixture
+is available immediately and after catalog refreshes; chosen options carry
+into new demo sessions and remain available when their picker reopens. Replies
+remain simulated. Demo catalogs are isolated from live host catalogs, and demo
+session state lasts only for the current app run.
 
 Existing sessions keep their current provider and sandbox settings. New-session
 drafts retain model options, including when reopened; drafts saved before model
@@ -85,9 +99,11 @@ the existing core model metadata and sends validated choices through `ChatConfig
 
 Picker coverage lives in `ZeronTests/ModelCatalogTests.swift`,
 `ZeronTests/ModelPickerPresentationTests.swift`, and the model-picker cases in
-`ZeronUITests/SessionFlowTests.swift`. Run those targeted cases on Xcode 26+;
-Swift syntax checks on other platforms do not replace a native build or
-simulator run.
+`ZeronUITests/SessionFlowTests.swift`. Presentation checks cover fixed drawer
+geometry across settings changes, list/tray space sharing, rounded selection
+rows, and independent option/Fusion popovers. Run those targeted cases on
+Xcode 26+; Swift syntax checks on other platforms do not replace a native
+build or simulator run.
 
 From `apps/ios`, the targeted picker checks are:
 
@@ -97,6 +113,7 @@ xcodebuild -project Zeron.xcodeproj -scheme Zeron \
   -only-testing:ZeronTests/ModelCatalogTests \
   -only-testing:ZeronTests/ModelPickerPresentationTests \
   -only-testing:ZeronUITests/SessionFlowTests/testModelPickerInNewSession \
+  -only-testing:ZeronUITests/SessionFlowTests/testDemoFusionOptionsContinueIntoCreatedSession \
   -only-testing:ZeronUITests/SessionFlowTests/testModelPickerInSession \
   -only-testing:ZeronUITests/SessionFlowTests/testEffortPickerInSession \
   -only-testing:ZeronUITests/SessionFlowTests/testServiceTierInSession \

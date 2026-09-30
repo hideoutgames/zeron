@@ -54,11 +54,15 @@ final class NewSessionViewController: UIViewController, UIGestureRecognizerDeleg
     private let wallpaper = WallpaperView()
     private let mark = UIImageView()
     private var draft: NewSessionDraft
-    private var catalog = ModelCatalog.fallback()
+    private var catalog: ModelCatalog
     /// The last catalog each host reported, so the chip opens on a real model
     /// name while a fresh one comes back over the relay.
-    private static var catalogCache: [String: ModelCatalog] = [:]
-    private var catalogDevice: String?
+    private struct CatalogKey: Hashable {
+        let device: String
+        let isDemo: Bool
+    }
+    private static var catalogCache: [CatalogKey: ModelCatalog] = [:]
+    private var catalogKey: CatalogKey?
     private weak var modelPicker: ModelPickerViewController?
     private var catalogRequest = UUID()
 
@@ -79,6 +83,7 @@ final class NewSessionViewController: UIViewController, UIGestureRecognizerDeleg
         self.focusOnAppear = !embedded
         self.onCreated = onCreated
         self.draft = app.lastDraft
+        self.catalog = ModelCatalog.fallback().includingDemoModels(enabled: app.isDemo)
         super.init(nibName: nil, bundle: nil)
         // Pick up where the page was left (closed without sending).
         composer.text = prompt ?? app.newSessionText
@@ -194,13 +199,14 @@ final class NewSessionViewController: UIViewController, UIGestureRecognizerDeleg
     /// host's own list. `refresh` re-lists the same host when the picker opens.
     private func loadModels(refresh: Bool = false) {
         let device = deviceId
-        if !refresh, device == catalogDevice {
+        let key = CatalogKey(device: device, isDemo: app.isDemo)
+        if !refresh, key == catalogKey {
             refreshChips()
             return
         }
-        if device != catalogDevice {
-            catalogDevice = device
-            catalog = Self.catalogCache[device] ?? .fallback()
+        if key != catalogKey {
+            catalogKey = key
+            catalog = Self.catalogCache[key] ?? ModelCatalog.fallback().includingDemoModels(enabled: key.isDemo)
             refreshChips()
         }
         let request = UUID()
@@ -208,10 +214,10 @@ final class NewSessionViewController: UIViewController, UIGestureRecognizerDeleg
         Task { @MainActor [weak self] in
             guard let self else { return }
             let fresh = await self.app.modelCatalog(for: device)
-            guard self.catalogRequest == request else { return }
+            guard self.catalogRequest == request, self.app.isDemo == key.isDemo else { return }
             guard !fresh.providers.isEmpty else { return }
-            Self.catalogCache[device] = fresh
-            guard self.catalogDevice == device, fresh != self.catalog else { return }
+            Self.catalogCache[key] = fresh
+            guard self.catalogKey == key, fresh != self.catalog else { return }
             self.catalog = fresh
             self.refreshChips()
             self.modelPicker?.update(catalog: fresh)
