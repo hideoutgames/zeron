@@ -84,6 +84,13 @@ Effort, Sidekick and its advertised switches. It has no back button;
 dismissing the popup returns to the still-open drawer. Option choices and the
 Fusion popup stay popovers on both iPhone and iPad.
 
+The `-demo` workspace includes a dummy Devin provider with Fusion so its Lead,
+Effort, Sidekick and Fast Mode controls can be exercised offline. The fixture
+is available immediately and after catalog refreshes; chosen options carry
+into new demo sessions and remain available when their picker reopens. Replies
+remain simulated. Demo catalogs are isolated from live host catalogs, and demo
+session state lasts only for the current app run.
+
 Existing sessions keep their current provider and sandbox settings. New-session
 drafts retain model options, including when reopened; drafts saved before model
 options were introduced still decode. Catalog refreshes retain the latest pick
@@ -106,6 +113,7 @@ xcodebuild -project Zeron.xcodeproj -scheme Zeron \
   -only-testing:ZeronTests/ModelCatalogTests \
   -only-testing:ZeronTests/ModelPickerPresentationTests \
   -only-testing:ZeronUITests/SessionFlowTests/testModelPickerInNewSession \
+  -only-testing:ZeronUITests/SessionFlowTests/testDemoFusionOptionsContinueIntoCreatedSession \
   -only-testing:ZeronUITests/SessionFlowTests/testModelPickerInSession \
   -only-testing:ZeronUITests/SessionFlowTests/testEffortPickerInSession \
   -only-testing:ZeronUITests/SessionFlowTests/testServiceTierInSession \

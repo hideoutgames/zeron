@@ -49,7 +49,7 @@ final class CoreSessionSource: SessionSource {
                 reasoningLevels: fallbackHarnesses().first { $0.id == harness }?.reasoningLevels ?? [],
                 models: fallbackModels(harness: harness)
             ),
-        ])
+        ]).includingDemoModels(enabled: client.isDemo())
         hostCatalog = fallback
         return fallback
     }
@@ -257,7 +257,7 @@ final class CoreSessionSource: SessionSource {
                     reasoningLevels: info?.reasoningLevels ?? [],
                     models: listedModels
                 ),
-            ])
+            ]).includingDemoModels(enabled: client.isDemo())
             self.hostCatalog = fresh
             self.refresh()
             done(fresh)

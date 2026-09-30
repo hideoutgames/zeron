@@ -79,6 +79,42 @@ struct ModelCatalog: Equatable {
         })
     }
 
+    /// Offline demo fixture for the Fusion controls. Real hosts remain the
+    /// authority for their own catalogs; this never adds a live provider.
+    func includingDemoModels(enabled: Bool) -> ModelCatalog {
+        guard enabled else { return self }
+        var result = self
+        let fusion = ModelInfo(
+            id: "fusion",
+            label: "Fusion",
+            description: "Demo model with simulated responses",
+            reasoningLevels: ["low", "medium", "high", "xhigh"],
+            options: [
+                ModelOption(id: "lead", label: "Lead", choices: [
+                    .init(id: "claude-fable-5-1", label: "Claude Fable 5.1"),
+                    .init(id: "gpt-6-sol", label: "GPT-6 Sol"),
+                ], defaultChoice: "claude-fable-5-1"),
+                ModelOption(id: "sidekick", label: "Sidekick", choices: [
+                    .init(id: "swe-2-medium", label: "SWE-2 Medium"),
+                    .init(id: "swe-2-high", label: "SWE-2 High"),
+                ], defaultChoice: "swe-2-medium"),
+                ModelOption(id: "speed", label: "Fast Mode", choices: [
+                    .init(id: "standard", label: "Standard"),
+                    .init(id: "fast", label: "Fast"),
+                ], defaultChoice: "standard"),
+            ],
+            defaultReasoning: "high"
+        )
+        if let index = result.providers.firstIndex(where: { $0.id == "devin" }) {
+            if !result.providers[index].models.contains(where: { $0.id == fusion.id }) {
+                result.providers[index].models.append(fusion)
+            }
+        } else {
+            result.providers.append(Provider(id: "devin", label: "Devin", models: [fusion]))
+        }
+        return result
+    }
+
     func provider(_ harness: String) -> Provider? {
         providers.first { $0.id == harness }
     }

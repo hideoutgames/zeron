@@ -204,6 +204,44 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(models.tabs(for: .init(harness: "codex"), locked: true).map(\.id), ["codex"])
     }
 
+    func testDemoFusionCatalogIsOptInAndPreservesReportedModels() throws {
+        let live = catalog([.init(id: "codex", label: "Codex", models: [model("one", "One")])])
+        XCTAssertEqual(live.includingDemoModels(enabled: false), live)
+        XCTAssertNil(live.provider("devin"))
+        let demo = live.includingDemoModels(enabled: true)
+        XCTAssertEqual(demo.provider("codex"), live.provider("codex"))
+        XCTAssertEqual(demo.providers.filter { $0.id == "devin" }.count, 1)
+        XCTAssertEqual(demo.includingDemoModels(enabled: true), demo, "reopening or refreshing never duplicates the demo provider")
+
+        let reported = catalog([.init(id: "devin", label: "Reported Devin", models: [model("adaptive", "Adaptive")])])
+        let augmented = reported.includingDemoModels(enabled: true)
+        let devin = try XCTUnwrap(augmented.provider("devin"))
+        XCTAssertEqual(devin.label, "Reported Devin")
+        XCTAssertEqual(devin.models.map(\.id), ["adaptive", "fusion"])
+        XCTAssertEqual(augmented.includingDemoModels(enabled: true), augmented)
+
+        let suppliedFusion = catalog([.init(id: "devin", label: "Devin", models: [model("fusion", "Reported Fusion", reasoning: ["low"])])])
+        XCTAssertEqual(suppliedFusion.includingDemoModels(enabled: true), suppliedFusion, "an existing model definition stays authoritative")
+    }
+
+    func testDemoFusionOffersFullCardAndKeepsChosenOptions() throws {
+        let demo = catalog([]).includingDemoModels(enabled: true)
+        let selection = ModelSelection(harness: "devin", model: "fusion")
+        let fusion = try XCTUnwrap(demo.modelInfo(for: selection))
+        XCTAssertTrue(ModelCatalog.isConfiguredInPlace(fusion))
+        XCTAssertEqual(demo.settingGroups(for: selection), [])
+        let groups = demo.cardGroups(for: selection)
+        XCTAssertEqual(groups.map(\.label), ["Lead", "Effort", "Sidekick", "Fast Mode"])
+        XCTAssertEqual(groups.map(\.isToggle), [false, false, false, true])
+
+        var pick = demo.picking("gpt-6-sol", for: .option("lead"), in: selection)
+        pick = demo.picking("low", for: .effort, in: pick)
+        pick = demo.picking("swe-2-high", for: .option("sidekick"), in: pick)
+        pick = demo.picking("fast", for: .option("speed"), in: pick)
+        XCTAssertEqual(demo.resolved(pick, keepingUnlistedOptions: false), pick, "the demo choices survive the same validation used when starting a session")
+        XCTAssertEqual(demo.cardGroups(for: pick).compactMap { $0.selectedChoice?.label }, ["GPT-6 Sol", "Low", "SWE-2 High", "Fast"])
+    }
+
     func testDraftSavedBeforeModelOptionsStillDecodes() throws {
         let data = Data(#"{"worktree":false,"harness":"codex","model":"one","effort":"high"}"#.utf8)
         let draft = try JSONDecoder().decode(NewSessionDraft.self, from: data)

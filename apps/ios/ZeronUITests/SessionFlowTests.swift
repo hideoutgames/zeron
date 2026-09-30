@@ -441,6 +441,75 @@ final class SessionFlowTests: XCTestCase {
         dismissModelDrawer(app)
     }
 
+    /// Demo mode offers Fusion without an installed Devin host, and its
+    /// choices continue through the normal new-session/configuration path.
+    func testDemoFusionOptionsContinueIntoCreatedSession() {
+        let app = launch(["-route", "new"])
+        let model = app.buttons["composer-chip-model"]
+        XCTAssertTrue(model.waitForExistence(timeout: 10))
+        model.tap()
+        let devin = app.buttons["model-tab-devin"]
+        XCTAssertTrue(devin.waitForExistence(timeout: 5))
+        devin.tap()
+        let fusion = app.cells["model-row-fusion"]
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        fusion.tap()
+
+        let popup = app.otherElements["model-config-card"]
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        let lead = app.buttons["model-setting-lead"]
+        lead.tap()
+        chooseModelOption(app, "gpt-6-sol")
+        XCTAssertTrue(waitForValue(lead, "GPT-6 Sol"))
+        let effort = app.buttons["model-setting-effort"]
+        effort.tap()
+        chooseModelOption(app, "low")
+        XCTAssertTrue(waitForValue(effort, "Low"))
+        let sidekick = app.buttons["model-setting-sidekick"]
+        sidekick.tap()
+        chooseModelOption(app, "swe-2-high")
+        XCTAssertTrue(waitForValue(sidekick, "SWE-2 High"))
+        let fast = app.switches["model-toggle-speed"]
+        fast.tap()
+        XCTAssertTrue(waitForValue(fast, "1"))
+        snapshot(app, "demo-fusion-options")
+
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.15)).tap()
+        XCTAssertTrue(popup.waitForNonExistence(timeout: 5))
+        dismissModelDrawer(app)
+        let input = app.textViews["composer-input"]
+        input.tap()
+        input.typeText("Check the demo Fusion settings")
+        app.buttons["composer-send"].tap()
+        XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 10))
+
+        input.tap()
+        XCTAssertTrue(model.waitForExistence(timeout: 5))
+        XCTAssertTrue(model.label.contains("Fusion"))
+        model.tap()
+        XCTAssertTrue(devin.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["model-tab-codex"].exists, "the created session retains its provider")
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        XCTAssertTrue(fusion.isSelected)
+        fusion.tap()
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue(lead, "GPT-6 Sol"), "Lead survives creating the demo session")
+        XCTAssertTrue(waitForValue(effort, "Low"))
+        XCTAssertTrue(waitForValue(sidekick, "SWE-2 High"))
+        XCTAssertTrue(waitForValue(fast, "1"))
+
+        // Reopening uses the existing session's refreshed catalog as well.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.15)).tap()
+        XCTAssertTrue(popup.waitForNonExistence(timeout: 5))
+        dismissModelDrawer(app)
+        model.tap()
+        XCTAssertTrue(fusion.waitForExistence(timeout: 5))
+        fusion.tap()
+        XCTAssertTrue(popup.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForValue(lead, "GPT-6 Sol"))
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
     /// "+" opens without focusing or moving the resting composer, and stays
     /// usable across card/capsule transitions and repeated menu dismissals.
     func testAttachMenuOpens() throws {
